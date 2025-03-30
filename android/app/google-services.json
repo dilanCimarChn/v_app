@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "488344172437",
+    "project_id": "viajeseguro-b204d",
+    "storage_bucket": "viajeseguro-b204d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:488344172437:android:04debce8ea6becdc20e89c",
+        "android_client_info": {
+          "package_name": "com.example.v_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "488344172437-1rmij6bq9rp6jt2u61bhno87v42spbpd.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAFydQGLYFGbmcHbRsTSWFKIDNLoiTnRjo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "488344172437-1rmij6bq9rp6jt2u61bhno87v42spbpd.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
