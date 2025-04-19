@@ -37,11 +37,14 @@ class _RegistrarseState extends State<Registrarse> {
           SharedPreferences prefs = await SharedPreferences.getInstance();
           await prefs.setString('loggedInUserEmail', email);
           await prefs.setString('rol', user['rol']);
+          await prefs.setString('loggedInUserName', user['name'] ?? 'Usuario');
 
-          Navigator.pushReplacementNamed(
-            context,
-            user['rol'] == 'cliente' ? '/home_cliente' : '/home_conductor',
-          );
+          if (user['rol'] == 'cliente') {
+            Navigator.pushReplacementNamed(context, '/home_cliente');
+          } else {
+            // Si es conductor, verificar su estado
+            Navigator.pushReplacementNamed(context, '/verificacion_conductor');
+          }
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("Contraseña incorrecta")),
@@ -104,12 +107,15 @@ class _RegistrarseState extends State<Registrarse> {
               SharedPreferences prefs = await SharedPreferences.getInstance();
               await prefs.setString('loggedInUserEmail', email);
               await prefs.setString('rol', selectedRol!);
+              await prefs.setString('loggedInUserName', nameCtrl.text.trim());
 
               Navigator.of(context).pop();
-              Navigator.pushReplacementNamed(
-                context,
-                selectedRol == 'cliente' ? '/home_cliente' : '/home_conductor',
-              );
+              
+              if (selectedRol == 'cliente') {
+                Navigator.pushReplacementNamed(context, '/home_cliente');
+              } else {
+                Navigator.pushReplacementNamed(context, '/verificacion_conductor');
+              }
             },
           ),
         ],
@@ -144,11 +150,13 @@ class _RegistrarseState extends State<Registrarse> {
         SharedPreferences prefs = await SharedPreferences.getInstance();
         await prefs.setString('loggedInUserEmail', user.email ?? '');
         await prefs.setString('rol', rol);
+        await prefs.setString('loggedInUserName', user.displayName ?? 'Usuario');
 
-        Navigator.pushReplacementNamed(
-          context,
-          rol == 'cliente' ? '/home_cliente' : '/home_conductor',
-        );
+        if (rol == 'cliente') {
+          Navigator.pushReplacementNamed(context, '/home_cliente');
+        } else {
+          Navigator.pushReplacementNamed(context, '/verificacion_conductor');
+        }
       } else {
         await _showGoogleRegistroEmergente(user.email!, user.displayName ?? '');
       }
@@ -236,12 +244,15 @@ class _RegistrarseState extends State<Registrarse> {
                   SharedPreferences prefs = await SharedPreferences.getInstance();
                   await prefs.setString('loggedInUserEmail', email);
                   await prefs.setString('rol', rol!);
+                  await prefs.setString('loggedInUserName', nombre);
 
                   Navigator.of(context).pop();
-                  Navigator.pushReplacementNamed(
-                    context,
-                    rol == 'cliente' ? '/home_cliente' : '/home_conductor',
-                  );
+                  
+                  if (rol == 'cliente') {
+                    Navigator.pushReplacementNamed(context, '/home_cliente');
+                  } else {
+                    Navigator.pushReplacementNamed(context, '/verificacion_conductor');
+                  }
                 },
                 child: const Text("Guardar"),
               ),
@@ -270,6 +281,8 @@ class _RegistrarseState extends State<Registrarse> {
             Image.network(
               'https://i.ibb.co/xtN8mjLv/logo.png',
               height: MediaQuery.of(context).size.height * 0.3,
+              errorBuilder: (context, error, stackTrace) => 
+                Icon(Icons.image, size: MediaQuery.of(context).size.height * 0.3, color: Colors.grey),
             ),
             const SizedBox(height: 20),
             TextField(
