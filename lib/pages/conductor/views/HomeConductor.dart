@@ -6,7 +6,7 @@ class HomeConductor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Center(
-      child: Text("Vista: Inicio del Conductor"),
+      child: Text("Vista: Home Inicio del Conductor"),
     );
   }
 }
