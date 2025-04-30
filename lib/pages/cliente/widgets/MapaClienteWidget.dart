@@ -258,7 +258,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
                     );
                     if (mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('🚗 ¡Viaje solicitado con éxito!')),
+                        const SnackBar(content: Text('¡Viaje solicitado con éxito!')),
                       );
                     }
                     Navigator.pop(context);

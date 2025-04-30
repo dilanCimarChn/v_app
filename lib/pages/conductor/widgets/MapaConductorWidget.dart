@@ -110,7 +110,7 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text("📍 Nuevo viaje disponible"),
+        title: const Text(" Nuevo viaje disponible"),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -224,7 +224,7 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('🚫 Viaje cancelado')),
+      const SnackBar(content: Text(' Viaje cancelado')),
     );
   }
 
