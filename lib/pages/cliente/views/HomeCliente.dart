@@ -1,8 +1,33 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../widgets/MapaClienteWidget.dart';
 
 class HomeCliente extends StatelessWidget {
   const HomeCliente({super.key});
+
+  // ⚠ Reemplaza por la URL actual generada por Ngrok
+  final String ngrokUrl = 'https://2f68-2800-cd0-165-3459-d11f-a8e1-bbe5-b4b2.ngrok-free.app';
+
+  void _abrirStream(BuildContext context) async {
+    final Uri url = Uri.parse(ngrokUrl);
+
+    try {
+      // Lanza directamente el navegador sin verificar con canLaunchUrl
+      final bool launched = await launchUrl(
+        url,
+        mode: LaunchMode.externalApplication,
+      );
+
+      if (!launched) {
+        throw 'No se pudo abrir el navegador';
+      }
+    } catch (e) {
+      // Muestra error visual en caso de fallo
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al abrir el stream: $e')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -20,6 +45,21 @@ class HomeCliente extends StatelessWidget {
               _UbicacionChip(nombre: "Plaza Central"),
               _UbicacionChip(nombre: "Aeropuerto"),
             ],
+          ),
+        ),
+
+        // Botón de Stream
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: ElevatedButton.icon(
+            icon: const Icon(Icons.videocam),
+            label: const Text('Ver cámara en vivo'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            onPressed: () => _abrirStream(context),
           ),
         ),
 

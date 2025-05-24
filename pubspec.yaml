@@ -40,6 +40,8 @@ dependencies:
   firebase_auth: ^4.20.0
   firebase_core: ^2.32.0
 
+  # WEB CAM
+  url_launcher: ^6.1.7
 
 
 
