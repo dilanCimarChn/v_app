@@ -87,7 +87,7 @@ class _NavClienteState extends State<NavCliente> {
       appBar: AppBar(
         backgroundColor: Colors.blueAccent,
         automaticallyImplyLeading: true,
-        title: const Text("🧍 Rol: Cliente"),
+        title: const Text("Rol: Cliente"),
       ),
       drawer: Drawer(
         backgroundColor: Colors.white,

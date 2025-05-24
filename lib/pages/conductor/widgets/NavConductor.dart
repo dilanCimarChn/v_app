@@ -87,7 +87,7 @@ class _NavConductorState extends State<NavConductor> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.orangeAccent,
-        title: const Text("🚗 Rol: Conductor"),
+        title: const Text("Rol: Conductor"),
       ),
       drawer: Drawer(
         backgroundColor: Colors.white,

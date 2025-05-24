@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:v_app/pages/cliente/widgets/NavCliente.dart';
-import 'package:v_app/pages/conductor/widgets/NavConductor.dart';
-import 'firebase_options.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'firebase_options.dart';
 import 'package:v_app/login/bienvenido.dart';
 import 'package:v_app/login/inicia_sesion.dart';
 import 'package:v_app/login/registrarse.dart';
 
+import 'package:v_app/pages/cliente/widgets/NavCliente.dart';
+import 'package:v_app/pages/conductor/widgets/NavConductor.dart';
 import 'package:v_app/pages/conductor/views/forms.dart';
 
 void main() async {
@@ -48,7 +48,6 @@ class MyApp extends StatelessWidget {
   }
 }
 
-// Widget para determinar la ruta inicial basada en la sesión
 class RutaInicial extends StatefulWidget {
   const RutaInicial({Key? key}) : super(key: key);
 
@@ -70,17 +69,13 @@ class _RutaInicialState extends State<RutaInicial> {
       final rol = prefs.getString('rol');
 
       if (email == null || email.isEmpty || rol == null || rol.isEmpty) {
-        // No hay sesión activa, ir a bienvenido
         Navigator.pushReplacementNamed(context, '/');
       } else if (rol == 'cliente') {
-        // Usuario es cliente, ir a HomeCliente
         Navigator.pushReplacementNamed(context, '/home_cliente');
       } else if (rol == 'conductor') {
-        // Usuario es conductor, verificar solicitud
         Navigator.pushReplacementNamed(context, '/verificacion_conductor');
       }
     } catch (e) {
-      // En caso de error, ir a la pantalla de bienvenida
       Navigator.pushReplacementNamed(context, '/');
     }
   }
