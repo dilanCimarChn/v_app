@@ -43,6 +43,10 @@ dependencies:
   # WEB CAM
   url_launcher: ^6.1.7
 
+  # gmail 
+  http: ^1.1.0
+  mailer: ^6.0.1 
+
 
 
   #mapa para la navegacion

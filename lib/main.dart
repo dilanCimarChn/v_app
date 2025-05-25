@@ -6,6 +6,7 @@ import 'firebase_options.dart';
 import 'package:v_app/login/bienvenido.dart';
 import 'package:v_app/login/inicia_sesion.dart';
 import 'package:v_app/login/registrarse.dart';
+import 'package:v_app/login/verificacion_codigo.dart'; // Nueva importación
 
 import 'package:v_app/pages/cliente/widgets/NavCliente.dart';
 import 'package:v_app/pages/conductor/widgets/NavConductor.dart';
@@ -39,6 +40,7 @@ class MyApp extends StatelessWidget {
         '/': (context) => Bienvenido(),
         '/inicia_sesion': (context) => IniciaSesion(),
         '/registrarse': (context) => Registrarse(),
+        '/verificacion_codigo': (context) => const VerificacionCodigo(email: '', rol: '', nombre: ''), // Nueva ruta
         '/home_cliente': (context) => const NavCliente(),
         '/home_conductor': (context) => const NavConductor(),
         '/verificacion_conductor': (context) => const VerificacionConductor(),
