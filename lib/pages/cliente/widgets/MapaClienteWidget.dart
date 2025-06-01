@@ -20,6 +20,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
   MaplibreMapController? mapController;
   LatLng? ubicacionActual;
   LatLng? destinoSeleccionado;
+  Symbol? origenSymbol;
   Symbol? destinoSymbol;
   Line? rutaLine;
   Symbol? conductorSymbol;
@@ -28,6 +29,12 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> sugerencias = [];
   bool modalMostrado = false;
+
+  // Colores mejorados
+  static const Color primaryColor = Color(0xFF2196F3);
+  static const Color successColor = Color(0xFF4CAF50);
+  static const Color warningColor = Color(0xFFFF9800);
+  static const Color errorColor = Color(0xFFF44336);
 
   @override
   void initState() {
@@ -56,17 +63,26 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
     });
   }
 
-  void _onMapCreated(MaplibreMapController controller) {
+  void _onMapCreated(MaplibreMapController controller) async {
     mapController = controller;
 
     if (ubicacionActual != null) {
       controller.animateCamera(
         CameraUpdate.newLatLngZoom(ubicacionActual!, 15),
       );
-      controller.addSymbol(SymbolOptions(
+      
+      // Agregar marcador de origen con estilo verde y emoji
+      origenSymbol = await controller.addSymbol(SymbolOptions(
         geometry: ubicacionActual!,
         iconImage: "marker-15",
-        iconSize: 1.5,
+        iconSize: 1.8,
+        iconColor: "#4CAF50", // Verde para origen
+        textField: "Tu ubicación",
+        textOffset: const Offset(0, 2.5),
+        textSize: 12,
+        textColor: "#4CAF50",
+        textHaloColor: "#FFFFFF",
+        textHaloWidth: 1.5,
       ));
     }
   }
@@ -95,11 +111,21 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
           final geo = conductorPos as GeoPoint;
           final LatLng pos = LatLng(geo.latitude, geo.longitude);
 
+          // Remover conductor anterior si existe
           if (conductorSymbol != null) mapController?.removeSymbol(conductorSymbol!);
+          
+          // Agregar conductor con icono de auto azul
           conductorSymbol = await mapController?.addSymbol(SymbolOptions(
             geometry: pos,
             iconImage: "marker-15",
-            iconSize: 1.5,
+            iconSize: 2.0,
+            iconColor: "#2196F3", // Azul para conductor
+            textField: "🚕 Tu conductor",
+            textOffset: const Offset(0, 2.8),
+            textSize: 11,
+            textColor: "#2196F3",
+            textHaloColor: "#FFFFFF",
+            textHaloWidth: 1.5,
           ));
 
           final distancia = Geolocator.distanceBetween(
@@ -122,16 +148,40 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
             destino: destino,
           );
 
+          // Agregar origen con estilo verde
+          origenSymbol = await mapController?.addSymbol(SymbolOptions(
+            geometry: ubicacionActual!,
+            iconImage: "marker-15",
+            iconSize: 1.8,
+            iconColor: "#4CAF50",
+            textField: "🔷 Origen",
+            textOffset: const Offset(0, 2.5),
+            textSize: 12,
+            textColor: "#4CAF50",
+            textHaloColor: "#FFFFFF",
+            textHaloWidth: 1.5,
+          ));
+
+          // Agregar destino con estilo rojo
           await mapController?.addSymbol(SymbolOptions(
             geometry: destino,
             iconImage: "marker-15",
-            iconSize: 1.5,
+            iconSize: 1.8,
+            iconColor: "#F44336",
+            textField: "📍 Destino",
+            textOffset: const Offset(0, 2.5),
+            textSize: 12,
+            textColor: "#F44336",
+            textHaloColor: "#FFFFFF",
+            textHaloWidth: 1.5,
           ));
 
+          // Agregar ruta con mejor estilo
           await mapController?.addLine(LineOptions(
             geometry: ruta,
-            lineColor: "#00C851",
-            lineWidth: 5,
+            lineColor: "#4CAF50",
+            lineWidth: 6,
+            lineOpacity: 0.8,
           ));
         }
       }
@@ -141,14 +191,42 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
   void _mostrarModalLlegada() {
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (_) => AlertDialog(
-        title: const Text("🚗 ¡Ha llegado tu transporte!"),
-        content: const Text("Tu conductor está cerca, por favor prepárate."),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: successColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: const Icon(Icons.directions_car, color: successColor, size: 32),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                "¡Ha llegado tu transporte!",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          "Tu conductor está cerca, por favor prepárate para abordar.",
+          style: TextStyle(fontSize: 16),
+        ),
         actions: [
-          TextButton(
-            child: const Text("Aceptar"),
+          ElevatedButton(
             onPressed: () => Navigator.of(context).pop(),
-          )
+            style: ElevatedButton.styleFrom(
+              backgroundColor: successColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            ),
+            child: const Text("Entendido", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+          ),
         ],
       ),
     );
@@ -159,10 +237,18 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
       mapController!.removeSymbol(destinoSymbol!);
     }
 
+    // Agregar destino con icono rojo y emoji
     destinoSymbol = await mapController!.addSymbol(SymbolOptions(
       geometry: coordinates,
       iconImage: "marker-15",
-      iconSize: 1.5,
+      iconSize: 1.8,
+      iconColor: "#F44336", // Rojo para destino
+      textField: "📍 Destino",
+      textOffset: const Offset(0, 2.5),
+      textSize: 12,
+      textColor: "#F44336",
+      textHaloColor: "#FFFFFF",
+      textHaloWidth: 1.5,
     ));
 
     setState(() {
@@ -187,8 +273,9 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
     if (puntosRuta.isNotEmpty) {
       rutaLine = await mapController!.addLine(LineOptions(
         geometry: puntosRuta,
-        lineColor: "#007AFF",
-        lineWidth: 5,
+        lineColor: "#2196F3",
+        lineWidth: 6,
+        lineOpacity: 0.8,
       ));
     }
   }
@@ -217,10 +304,18 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
       mapController!.removeSymbol(destinoSymbol!);
     }
 
+    // Agregar destino seleccionado con icono rojo
     destinoSymbol = await mapController!.addSymbol(SymbolOptions(
       geometry: coordenadas,
       iconImage: "marker-15",
-      iconSize: 1.5,
+      iconSize: 1.8,
+      iconColor: "#F44336",
+      textField: "🔷 Destino",
+      textOffset: const Offset(0, 2.5),
+      textSize: 12,
+      textColor: "#F44336",
+      textHaloColor: "#FFFFFF",
+      textHaloWidth: 1.5,
     ));
 
     destinoSeleccionado = coordenadas;
@@ -231,44 +326,120 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
   void _mostrarEstimacion(double distancia, double tarifa) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (context) {
-        return Padding(
-          padding: const EdgeInsets.all(20),
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
+          ),
+          padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                "🚕 Estimación del Viaje",
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 10),
-              Text("Distancia: ${distancia.toStringAsFixed(2)} km"),
-              const SizedBox(height: 5),
-              Text("Costo estimado: Bs. ${tarifa.toStringAsFixed(2)}"),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () async {
-                  if (ubicacionActual != null && destinoSeleccionado != null) {
-                    await crearViajeEnFirebase(
-                      origen: ubicacionActual!,
-                      destino: destinoSeleccionado!,
-                    );
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('¡Viaje solicitado con éxito!')),
-                      );
-                    }
-                    Navigator.pop(context);
-                  }
-                },
-                child: const Text("Confirmar viaje"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blueAccent,
+              // Handle bar
+              Container(
+                width: 50,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(10),
                 ),
               ),
+              const SizedBox(height: 20),
+              
+              // Título con icono mejorado
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(15),
+                    decoration: BoxDecoration(
+                      color: primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Icon(Icons.directions_car, color: primaryColor, size: 32),
+                  ),
+                  const SizedBox(width: 15),
+                  const Text(
+                    "Estimación del Viaje",
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              
+              const SizedBox(height: 25),
+              
+              // Información del viaje mejorada
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.grey[50],
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.grey[200]!),
+                ),
+                child: Column(
+                  children: [
+                    _buildInfoRow(Icons.straighten, "Distancia", "${distancia.toStringAsFixed(2)} km", primaryColor),
+                    const SizedBox(height: 15),
+                    _buildInfoRow(Icons.attach_money, "Costo estimado", "Bs. ${tarifa.toStringAsFixed(2)}", successColor),
+                  ],
+                ),
+              ),
+              
+              const SizedBox(height: 25),
+              
+              // Botón mejorado
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    if (ubicacionActual != null && destinoSeleccionado != null) {
+                      await crearViajeEnFirebase(
+                        origen: ubicacionActual!,
+                        destino: destinoSeleccionado!,
+                      );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Row(
+                              children: [
+                                Icon(Icons.check_circle, color: Colors.white),
+                                SizedBox(width: 10),
+                                Text('¡Viaje solicitado con éxito!'),
+                              ],
+                            ),
+                            backgroundColor: successColor,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        );
+                      }
+                      Navigator.pop(context);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    elevation: 3,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.check_circle, color: Colors.white),
+                      SizedBox(width: 10),
+                      Text(
+                        "Confirmar viaje",
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              
+              const SizedBox(height: 10),
             ],
           ),
         );
@@ -276,45 +447,110 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
     );
   }
 
+  Widget _buildInfoRow(IconData icon, String label, String value, Color color) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 24),
+        const SizedBox(width: 12),
+        Text(
+          "$label: ",
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(fontSize: 16, color: Colors.grey[700], fontWeight: FontWeight.w600),
+            textAlign: TextAlign.end,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ubicacionActual == null
-        ? const Center(child: CircularProgressIndicator())
+        ? Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(color: primaryColor),
+                const SizedBox(height: 16),
+                Text(
+                  "Obteniendo tu ubicación...",
+                  style: TextStyle(color: Colors.grey[600], fontSize: 16),
+                ),
+              ],
+            ),
+          )
         : Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              // Barra de búsqueda mejorada
+              Container(
+                margin: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
                 child: Column(
                   children: [
                     TextField(
                       controller: _searchController,
                       decoration: InputDecoration(
-                        hintText: "¿A dónde vas?",
-                        prefixIcon: const Icon(Icons.search),
+                        hintText: "¿A dónde quieres ir?",
+                        hintStyle: TextStyle(color: Colors.grey[500]),
+                        prefixIcon: Icon(Icons.search, color: primaryColor),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(15),
+                          borderSide: BorderSide.none,
                         ),
-                        fillColor: Colors.grey[100],
+                        fillColor: Colors.white,
                         filled: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
                       ),
                       onChanged: _buscarSugerencias,
                     ),
+                    
+                    // Lista de sugerencias mejorada
                     if (sugerencias.isNotEmpty)
                       Container(
-                        height: 200,
-                        margin: const EdgeInsets.only(top: 5),
+                        constraints: const BoxConstraints(maxHeight: 200),
+                        margin: const EdgeInsets.only(top: 8),
                         decoration: BoxDecoration(
                           color: Colors.white,
-                          border: Border.all(color: Colors.grey.shade300),
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(15),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 10,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                         ),
-                        child: ListView.builder(
+                        child: ListView.separated(
+                          shrinkWrap: true,
                           itemCount: sugerencias.length,
+                          separatorBuilder: (context, index) => Divider(height: 1, color: Colors.grey[200]),
                           itemBuilder: (context, index) {
                             final item = sugerencias[index];
                             return ListTile(
-                              leading: const Icon(Icons.location_on_outlined),
-                              title: Text(item['nombre']),
+                              leading: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: primaryColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(Icons.location_on, color: primaryColor, size: 20),
+                              ),
+                              title: Text(
+                                item['nombre'],
+                                style: const TextStyle(fontWeight: FontWeight.w500),
+                              ),
                               onTap: () {
                                 _seleccionarSugerencia(item['coordenadas']);
                               },
@@ -325,40 +561,64 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
                   ],
                 ),
               ),
+              
+              // Mapa con mejor estilo
               Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: MaplibreMap(
-                    styleString: "https://api.maptiler.com/maps/outdoor-v2/style.json?key=Y2TaDOuaHgeijPZP0ZiP",
-                    initialCameraPosition: CameraPosition(
-                      target: ubicacionActual!,
-                      zoom: 14.0,
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 15,
+                        offset: const Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: MaplibreMap(
+                      styleString: "https://api.maptiler.com/maps/outdoor-v2/style.json?key=Y2TaDOuaHgeijPZP0ZiP",
+                      initialCameraPosition: CameraPosition(
+                        target: ubicacionActual!,
+                        zoom: 14.0,
+                      ),
+                      onMapCreated: _onMapCreated,
+                      myLocationEnabled: true,
+                      myLocationTrackingMode: MyLocationTrackingMode.tracking,
+                      compassEnabled: true,
+                      onMapClick: _onMapTap,
                     ),
-                    onMapCreated: _onMapCreated,
-                    myLocationEnabled: true,
-                    myLocationTrackingMode: MyLocationTrackingMode.tracking,
-                    compassEnabled: true,
-                    onMapClick: _onMapTap,
                   ),
                 ),
               ),
+              
+              // Botón solicitar viaje mejorado
               if (destinoSeleccionado != null)
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: ElevatedButton.icon(
-                    onPressed: () {
-                      if (ubicacionActual != null && destinoSeleccionado != null) {
-                        final distanciaKm = calcularDistanciaKm(ubicacionActual!, destinoSeleccionado!);
-                        final tarifaEstimado = calcularTarifa(distanciaKm);
-
-                        _mostrarEstimacion(distanciaKm, tarifaEstimado);
-                      }
-                    },
-                    icon: const Icon(Icons.directions_car),
-                    label: const Text("Solicitar viaje"),
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(double.infinity, 50),
-                      backgroundColor: Colors.blueAccent,
+                Container(
+                  margin: const EdgeInsets.all(16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 56,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        if (ubicacionActual != null && destinoSeleccionado != null) {
+                          final distanciaKm = calcularDistanciaKm(ubicacionActual!, destinoSeleccionado!);
+                          final tarifaEstimado = calcularTarifa(distanciaKm);
+                          _mostrarEstimacion(distanciaKm, tarifaEstimado);
+                        }
+                      },
+                      icon: const Icon(Icons.directions_car, color: Colors.white),
+                      label: const Text(
+                        "Solicitar viaje",
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryColor,
+                        elevation: 3,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                      ),
                     ),
                   ),
                 ),
