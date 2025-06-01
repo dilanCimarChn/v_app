@@ -9,6 +9,7 @@ import '../views/PerfilCliente.dart';
 import '../views/PagosCliente.dart';
 import '../views/ComentariosCliente.dart';
 import '../views/NotificacionesCliente.dart';
+import '../views/ConfiguracionCliente.dart'; // ← AGREGADO
 
 class NavCliente extends StatefulWidget {
   const NavCliente({super.key});
@@ -21,13 +22,15 @@ class _NavClienteState extends State<NavCliente> {
   int _selectedIndex = 0;
   String _userName = '';
   
+  // ← ARRAY CORREGIDO CON ConfiguracionCliente
   final List<Widget> _views = const [
-    HomeCliente(),
-    HistorialCliente(),
-    PerfilCliente(),
-    PagosCliente(),
-    ComentariosCliente(),
-    NotificacionesCliente(),
+    HomeCliente(),           // 0 - Inicio
+    HistorialCliente(),      // 1 - Historial
+    PerfilCliente(),         // 2 - Perfil
+    PagosCliente(),          // 3 - Mi Billetera
+    ComentariosCliente(),    // 4 - Comentarios
+    NotificacionesCliente(), // 5 - Notificaciones
+    ConfiguracionCliente(),  // 6 - Configuración ← AGREGADO
   ];
   
   @override
@@ -124,7 +127,7 @@ class _NavClienteState extends State<NavCliente> {
               ),
             ),
             
-            // Lista de opciones del menú en español
+            // ← MENÚ CON ÍNDICES CORREGIDOS
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.only(top: 10),
@@ -132,37 +135,37 @@ class _NavClienteState extends State<NavCliente> {
                   _buildMenuItem(
                     icon: Icons.home_outlined,
                     text: 'Inicio',
-                    onTap: () => _onItemTapped(0),
-                  ),
-                  _buildMenuItem(
-                    icon: Icons.account_balance_wallet_outlined,
-                    text: 'Mi Billetera',
-                    onTap: () => _onItemTapped(3),
+                    onTap: () => _onItemTapped(0), // ✅ HomeCliente
                   ),
                   _buildMenuItem(
                     icon: Icons.access_time,
                     text: 'Historial',
-                    onTap: () => _onItemTapped(1),
+                    onTap: () => _onItemTapped(1), // ✅ HistorialCliente
+                  ),
+                  _buildMenuItem(
+                    icon: Icons.account_balance_wallet_outlined,
+                    text: 'Mi Billetera',
+                    onTap: () => _onItemTapped(3), // ✅ PagosCliente
                   ),
                   _buildMenuItem(
                     icon: Icons.notifications_outlined,
                     text: 'Notificaciones',
-                    onTap: () => _onItemTapped(5),
+                    onTap: () => _onItemTapped(5), // ✅ NotificacionesCliente
                   ),
                   _buildMenuItem(
                     icon: Icons.person_outline,
                     text: 'Perfil',
-                    onTap: () => _onItemTapped(2),
+                    onTap: () => _onItemTapped(2), // ✅ PerfilCliente
                   ),
                   _buildMenuItem(
                     icon: Icons.star_outline,
                     text: 'Comentarios',
-                    onTap: () => _onItemTapped(4),
+                    onTap: () => _onItemTapped(4), // ✅ ComentariosCliente
                   ),
                   _buildMenuItem(
                     icon: Icons.settings_outlined,
                     text: 'Configuración',
-                    onTap: () => _onItemTapped(2),
+                    onTap: () => _onItemTapped(6), // ✅ ConfiguracionCliente ← CORREGIDO
                   ),
                   const Divider(),
                   _buildMenuItem(
