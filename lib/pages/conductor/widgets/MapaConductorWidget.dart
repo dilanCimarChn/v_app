@@ -25,6 +25,7 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
   Map<String, dynamic>? viajeActivo;
   String? idViaje;
   bool viajeIniciado = false;
+  Set<String> viajesMostrados = {}; // NUEVO: Para evitar duplicados
 
   // Colores consistentes con el mapa cliente
   static const Color primaryColor = Color(0xFF2196F3);
@@ -75,16 +76,47 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
     }
   }
 
+  // MÉTODO CORREGIDO: Escuchar viajes pendientes
   void _escucharViajesPendientes() {
+    print('🚗 Conductor: Iniciando listener de viajes pendientes');
+    
     _viajeSubscription = FirebaseFirestore.instance
         .collection('viajes')
         .where('estado', isEqualTo: 'pendiente')
         .snapshots()
         .listen((snapshot) {
+      print('🔄 Conductor: Snapshot recibido - ${snapshot.docs.length} viajes pendientes');
+      
       if (snapshot.docs.isNotEmpty) {
-        final doc = snapshot.docs.first;
-        _mostrarModalAceptacion(doc);
+        for (var doc in snapshot.docs) {
+          final viajeId = doc.id;
+          final data = doc.data() as Map<String, dynamic>;
+          
+          print('📋 Conductor: Viaje encontrado - ID: $viajeId');
+          
+          // CORRECCIÓN: Solo mostrar si no se ha mostrado antes Y no tenemos viaje activo
+          if (!viajesMostrados.contains(viajeId) && viajeActivo == null) {
+            print('✅ Conductor: Mostrando modal para viaje $viajeId');
+            viajesMostrados.add(viajeId);
+            
+            // CORRECCIÓN: Usar Future.delayed para asegurar sincronización
+            Future.delayed(const Duration(milliseconds: 100), () {
+              if (mounted && viajeActivo == null) {
+                _mostrarModalAceptacion(doc);
+              }
+            });
+            
+            // Solo mostrar el primer viaje pendiente
+            break;
+          } else {
+            print('⚠️ Conductor: Viaje $viajeId ya mostrado o conductor ocupado');
+          }
+        }
+      } else {
+        print('📭 Conductor: No hay viajes pendientes');
       }
+    }, onError: (error) {
+      print('❌ Conductor: Error en listener: $error');
     });
   }
 
@@ -168,7 +200,11 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              Navigator.pop(context);
+              // CORRECCIÓN: Remover de la lista para que pueda aparecer de nuevo si es necesario
+              viajesMostrados.remove(doc.id);
+            },
             style: TextButton.styleFrom(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -177,6 +213,7 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
           ),
           ElevatedButton(
             onPressed: () async {
+              // CORRECCIÓN: Actualizar con timestamp para mejor sincronización
               await FirebaseFirestore.instance.collection('viajes').doc(doc.id).update({
                 'estado': 'aceptado',
                 'conductor_id': conductorId,
@@ -184,6 +221,7 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
                 'cliente_nombre': clienteNombre,
                 'distancia_km': distancia,
                 'tarifa': tarifa,
+                'fecha_aceptacion': FieldValue.serverTimestamp(), // NUEVO
               });
               Navigator.pop(context);
               setState(() {
@@ -233,10 +271,22 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
   Future<void> _mostrarRutaAlCliente(LatLng clienteOrigen) async {
     if (ubicacionConductor == null || mapController == null) return;
 
-    final puntos = await OpenRouteServiceAPI.obtenerRuta(
-      origen: ubicacionConductor!,
-      destino: clienteOrigen,
-    );
+    print('🗺️ Conductor: Trazando ruta al cliente');
+
+    // CORRECCIÓN: Intentar obtener ruta, si falla usar línea directa
+    List<LatLng> puntos = [];
+    
+    try {
+      puntos = await OpenRouteServiceAPI.obtenerRuta(
+        origen: ubicacionConductor!,
+        destino: clienteOrigen,
+      );
+      print('✅ Conductor: Ruta obtenida de OpenRouteService');
+    } catch (e) {
+      print('⚠️ Conductor: OpenRouteService falló, usando línea directa: $e');
+      // FALLBACK: Si OpenRouteService falla, usar línea directa
+      puntos = [ubicacionConductor!, clienteOrigen];
+    }
 
     mapController!.clearLines();
     mapController!.clearSymbols();
@@ -270,23 +320,64 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
     ));
 
     // Ruta hacia el cliente con color distintivo
-    rutaLine = await mapController!.addLine(LineOptions(
-      geometry: puntos,
-      lineColor: "#FF9800", // Naranja para ruta hacia cliente
-      lineWidth: 6,
-      lineOpacity: 0.8,
-    ));
+    if (puntos.isNotEmpty) {
+      rutaLine = await mapController!.addLine(LineOptions(
+        geometry: puntos,
+        lineColor: "#FF9800", // Naranja para ruta hacia cliente
+        lineWidth: 6,
+        lineOpacity: 0.8,
+      ));
+    }
+    
+    // CORRECCIÓN: Centrar el mapa para mostrar ambos puntos
+    final bounds = _calcularBounds([ubicacionConductor!, clienteOrigen]);
+    await mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds));
+  }
+
+  // NUEVO MÉTODO: Calcular bounds para mostrar ambos puntos
+  LatLngBounds _calcularBounds(List<LatLng> puntos) {
+    double minLat = puntos.first.latitude;
+    double maxLat = puntos.first.latitude;
+    double minLng = puntos.first.longitude;
+    double maxLng = puntos.first.longitude;
+
+    for (LatLng punto in puntos) {
+      minLat = minLat < punto.latitude ? minLat : punto.latitude;
+      maxLat = maxLat > punto.latitude ? maxLat : punto.latitude;
+      minLng = minLng < punto.longitude ? minLng : punto.longitude;
+      maxLng = maxLng > punto.longitude ? maxLng : punto.longitude;
+    }
+
+    // Agregar un pequeño padding a los bounds
+    const padding = 0.001; // ~100 metros
+    
+    return LatLngBounds(
+      southwest: LatLng(minLat - padding, minLng - padding),
+      northeast: LatLng(maxLat + padding, maxLng + padding),
+    );
   }
 
   Future<void> _iniciarViaje() async {
     if (viajeActivo == null || idViaje == null) return;
 
+    print('🚀 Conductor: Iniciando viaje');
+
     final destino = LatLng(viajeActivo!['destino_lat'], viajeActivo!['destino_lng']);
     final origen = LatLng(viajeActivo!['origen_lat'], viajeActivo!['origen_lng']);
-    final puntos = await OpenRouteServiceAPI.obtenerRuta(
-      origen: origen,
-      destino: destino,
-    );
+    
+    // CORRECCIÓN: Manejar error de OpenRouteService
+    List<LatLng> puntos = [];
+    
+    try {
+      puntos = await OpenRouteServiceAPI.obtenerRuta(
+        origen: origen,
+        destino: destino,
+      );
+      print('✅ Conductor: Ruta del viaje obtenida');
+    } catch (e) {
+      print('⚠️ Conductor: Error en ruta, usando línea directa: $e');
+      puntos = [origen, destino];
+    }
 
     mapController!.clearLines();
     mapController!.clearSymbols();
@@ -319,50 +410,117 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
       textHaloWidth: 1.5,
     ));
 
-    // Ruta del viaje en verde
-    await mapController!.addLine(LineOptions(
-      geometry: puntos,
-      lineColor: "#4CAF50",
-      lineWidth: 6,
-      lineOpacity: 0.8,
-    ));
+    // Ruta del viaje
+    if (puntos.isNotEmpty) {
+      await mapController!.addLine(LineOptions(
+        geometry: puntos,
+        lineColor: "#4CAF50",
+        lineWidth: 6,
+        lineOpacity: 0.8,
+      ));
+    }
 
+    // CORRECCIÓN: Agregar timestamp de inicio
     await FirebaseFirestore.instance.collection('viajes').doc(idViaje!).update({
       'estado': 'en_curso',
+      'fecha_inicio': FieldValue.serverTimestamp(),
     });
 
     setState(() {
       viajeIniciado = true;
     });
+    
+    print('✅ Conductor: Viaje iniciado correctamente');
+  }
+
+  // MÉTODO CORREGIDO: Finalizar viaje
+  Future<void> _finalizarViaje() async {
+    if (idViaje == null) return;
+
+    try {
+      // CORRECCIÓN: Usar batch para asegurar atomicidad
+      final batch = FirebaseFirestore.instance.batch();
+      final viajeRef = FirebaseFirestore.instance.collection('viajes').doc(idViaje!);
+      
+      batch.update(viajeRef, {
+        'estado': 'finalizado',
+        'fecha_finalizacion': FieldValue.serverTimestamp(),
+      });
+      
+      await batch.commit();
+
+      // CORRECCIÓN: Limpiar estado local
+      setState(() {
+        viajeActivo = null;
+        idViaje = null;
+        viajeIniciado = false;
+      });
+
+      // Limpiar mapa
+      mapController?.clearLines();
+      mapController?.clearSymbols();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 10),
+              Text('¡Viaje finalizado con éxito!'),
+            ],
+          ),
+          backgroundColor: successColor,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    } catch (e) {
+      print('Error al finalizar viaje: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al finalizar viaje: $e'),
+          backgroundColor: errorColor,
+        ),
+      );
+    }
   }
 
   Future<void> _cancelarViaje() async {
     if (idViaje == null) return;
 
-    await FirebaseFirestore.instance.collection('viajes').doc(idViaje!).update({
-      'estado': 'cancelado',
-    });
+    try {
+      await FirebaseFirestore.instance.collection('viajes').doc(idViaje!).update({
+        'estado': 'cancelado',
+        'fecha_cancelacion': FieldValue.serverTimestamp(),
+      });
 
-    setState(() {
-      viajeActivo = null;
-      idViaje = null;
-      viajeIniciado = false;
-    });
+      setState(() {
+        viajeActivo = null;
+        idViaje = null;
+        viajeIniciado = false;
+      });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.cancel, color: Colors.white),
-            SizedBox(width: 10),
-            Text('Viaje cancelado'),
-          ],
+      // Limpiar mapa
+      mapController?.clearLines();
+      mapController?.clearSymbols();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.cancel, color: Colors.white),
+              SizedBox(width: 10),
+              Text('Viaje cancelado'),
+            ],
+          ),
+          backgroundColor: errorColor,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
-        backgroundColor: errorColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
+      );
+    } catch (e) {
+      print('Error al cancelar viaje: $e');
+    }
   }
 
   @override
@@ -466,45 +624,80 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
                   ),
                 ),
               
-              // Botón de acción mejorado
+              // NUEVA SECCIÓN: Botones de acción mejorados
               if (viajeActivo != null)
                 Positioned(
                   bottom: 30,
                   left: 20,
                   right: 20,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 10,
-                          offset: const Offset(0, 5),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Botón finalizar viaje (solo cuando el viaje está iniciado)
+                      if (viajeIniciado) ...[
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.only(bottom: 12),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(18),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.2),
+                                blurRadius: 10,
+                                offset: const Offset(0, 5),
+                              ),
+                            ],
+                          ),
+                          child: ElevatedButton.icon(
+                            onPressed: _finalizarViaje,
+                            icon: const Icon(Icons.flag, color: Colors.white, size: 24),
+                            label: const Text(
+                              "Finalizar viaje",
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: successColor,
+                              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                              elevation: 0,
+                            ),
+                          ),
                         ),
                       ],
-                    ),
-                    child: ElevatedButton.icon(
-                      onPressed: viajeIniciado ? _cancelarViaje : _iniciarViaje,
-                      icon: Icon(
-                        viajeIniciado ? Icons.cancel : Icons.play_arrow,
-                        color: Colors.white,
-                        size: 24,
-                      ),
-                      label: Text(
-                        viajeIniciado ? "Cancelar viaje" : "Iniciar viaje",
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
+                      
+                      // Botón iniciar/cancelar viaje
+                      Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 10,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
+                        ),
+                        child: ElevatedButton.icon(
+                          onPressed: viajeIniciado ? _cancelarViaje : _iniciarViaje,
+                          icon: Icon(
+                            viajeIniciado ? Icons.cancel : Icons.play_arrow,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                          label: Text(
+                            viajeIniciado ? "Cancelar viaje" : "Iniciar viaje",
+                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: viajeIniciado ? errorColor : primaryColor,
+                            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                            elevation: 0,
+                          ),
                         ),
                       ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: viajeIniciado ? errorColor : successColor,
-                        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                        elevation: 0,
-                      ),
-                    ),
+                    ],
                   ),
                 ),
             ],

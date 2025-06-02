@@ -29,6 +29,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> sugerencias = [];
   bool modalMostrado = false;
+  bool modalCalificacionMostrado = false;
 
   // Colores mejorados
   static const Color primaryColor = Color(0xFF2196F3);
@@ -96,9 +97,11 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
     viajeListener = FirebaseFirestore.instance
         .collection('viajes')
         .where('cliente_id', isEqualTo: clienteId)
-        .where('estado', whereIn: ['aceptado', 'en curso'])
+        .where('estado', whereIn: ['aceptado', 'en_curso', 'finalizado'])
         .snapshots()
         .listen((snapshot) async {
+      print('🔄 Cliente: Cambio en viajes detectado - ${snapshot.docs.length} documentos');
+      
       if (snapshot.docs.isNotEmpty) {
         final doc = snapshot.docs.first;
         final data = doc.data();
@@ -106,8 +109,11 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
         final estado = data['estado'];
         final destinoLat = data['destino_lat'];
         final destinoLng = data['destino_lng'];
+        
+        print('📍 Cliente: Estado del viaje: $estado');
 
         if (estado == 'aceptado' && conductorPos != null) {
+          print('✅ Cliente: Viaje aceptado, mostrando conductor');
           final geo = conductorPos as GeoPoint;
           final LatLng pos = LatLng(geo.latitude, geo.longitude);
 
@@ -120,7 +126,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
             iconImage: "marker-15",
             iconSize: 2.0,
             iconColor: "#2196F3", // Azul para conductor
-            textField: "🚕 Tu conductor",
+            textField: "Tu conductor",
             textOffset: const Offset(0, 2.8),
             textSize: 11,
             textColor: "#2196F3",
@@ -138,7 +144,8 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
           }
         }
 
-        if (estado == 'en curso' && destinoLat != null && destinoLng != null) {
+        if (estado == 'en_curso' && destinoLat != null && destinoLng != null) {
+          print('🚗 Cliente: Viaje en curso, mostrando ruta');
           final destino = LatLng(destinoLat, destinoLng);
           mapController?.clearSymbols();
           mapController?.clearLines();
@@ -154,7 +161,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
             iconImage: "marker-15",
             iconSize: 1.8,
             iconColor: "#4CAF50",
-            textField: "🔷 Origen",
+            textField: "Origen",
             textOffset: const Offset(0, 2.5),
             textSize: 12,
             textColor: "#4CAF50",
@@ -168,7 +175,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
             iconImage: "marker-15",
             iconSize: 1.8,
             iconColor: "#F44336",
-            textField: "📍 Destino",
+            textField: "Destino",
             textOffset: const Offset(0, 2.5),
             textSize: 12,
             textColor: "#F44336",
@@ -184,7 +191,51 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
             lineOpacity: 0.8,
           ));
         }
+
+        // FUNCIONALIDAD CORREGIDA: Modal de calificación cuando el viaje finaliza
+        if (estado == 'finalizado') {
+          print('🏁 Cliente: Viaje finalizado detectado');
+          
+          // Verificar si ya fue calificado
+          final yaCalificado = data['calificacion_general'] != null && data['calificacion_general'] > 0;
+          print('⭐ Cliente: Ya calificado: $yaCalificado, Modal mostrado: $modalCalificacionMostrado');
+          
+          if (!yaCalificado && !modalCalificacionMostrado) {
+            print('📱 Cliente: Mostrando modal de calificación');
+            modalCalificacionMostrado = true;
+            
+            // CORRECCIÓN: Usar un delay para asegurar que el estado se actualice
+            await Future.delayed(const Duration(milliseconds: 500));
+            
+            if (mounted) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  _mostrarModalCalificacion(doc.id, data['conductor_nombre'] ?? 'Conductor');
+                }
+              });
+            }
+          }
+        }
+        
+        // CORRECCIÓN: Si el viaje ya fue calificado, limpiar el mapa
+        if (estado == 'finalizado' && data['calificacion_general'] != null) {
+          print('🧹 Cliente: Limpiando mapa - viaje calificado');
+          await Future.delayed(const Duration(seconds: 2));
+          mapController?.clearSymbols();
+          mapController?.clearLines();
+        }
+      } else {
+        print('❌ Cliente: No hay viajes activos, reseteando flags');
+        // Si no hay viajes activos, resetear los flags
+        if (mounted) {
+          setState(() {
+            modalMostrado = false;
+            modalCalificacionMostrado = false;
+          });
+        }
       }
+    }, onError: (error) {
+      print('❌ Cliente: Error en listener de viajes: $error');
     });
   }
 
@@ -232,6 +283,198 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
     );
   }
 
+  // MÉTODO CORREGIDO: Modal de calificación
+  void _mostrarModalCalificacion(String viajeId, String conductorNombre) {
+    int calificacion = 0;
+    int puntualidad = 0;
+    String comentario = '';
+
+    print('📱 Cliente: Abriendo modal de calificación para viaje $viajeId');
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: warningColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(15),
+                ),
+                child: const Icon(Icons.star, color: warningColor, size: 32),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  "Califica tu viaje",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "Conductor: $conductorNombre",
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 20),
+                
+                // Calificación general
+                const Text(
+                  "Calificación general:",
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(5, (index) {
+                    return GestureDetector(
+                      onTap: () {
+                        setDialogState(() {
+                          calificacion = index + 1;
+                        });
+                      },
+                      child: Icon(
+                        index < calificacion ? Icons.star : Icons.star_border,
+                        color: warningColor,
+                        size: 32,
+                      ),
+                    );
+                  }),
+                ),
+                const SizedBox(height: 20),
+                
+                // Puntualidad
+                const Text(
+                  "Puntualidad:",
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(5, (index) {
+                    return GestureDetector(
+                      onTap: () {
+                        setDialogState(() {
+                          puntualidad = index + 1;
+                        });
+                      },
+                      child: Icon(
+                        index < puntualidad ? Icons.star : Icons.star_border,
+                        color: primaryColor,
+                        size: 32,
+                      ),
+                    );
+                  }),
+                ),
+                const SizedBox(height: 20),
+                
+                // Comentario opcional
+                const Text(
+                  "Comentario (opcional):",
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  maxLines: 3,
+                  decoration: InputDecoration(
+                    hintText: "Comparte tu experiencia...",
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    contentPadding: const EdgeInsets.all(12),
+                  ),
+                  onChanged: (value) => comentario = value,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                print('⏭️ Cliente: Omitiendo calificación');
+                Navigator.of(context).pop();
+                // CORRECCIÓN: Mantener el flag para evitar que se muestre de nuevo
+              },
+              child: Text("Omitir", style: TextStyle(color: Colors.grey[600])),
+            ),
+            ElevatedButton(
+              onPressed: calificacion > 0 && puntualidad > 0 ? () async {
+                print('⭐ Cliente: Enviando calificación - General: $calificacion, Puntualidad: $puntualidad');
+                
+                try {
+                  // CORRECCIÓN: Usar batch para asegurar que la actualización sea atómica
+                  final batch = FirebaseFirestore.instance.batch();
+                  final viajeRef = FirebaseFirestore.instance.collection('viajes').doc(viajeId);
+                  
+                  batch.update(viajeRef, {
+                    'calificacion_general': calificacion,
+                    'calificacion_puntualidad': puntualidad,
+                    'comentario_cliente': comentario,
+                    'fecha_calificacion': FieldValue.serverTimestamp(),
+                  });
+                  
+                  await batch.commit();
+                  print('✅ Cliente: Calificación guardada exitosamente');
+
+                  // Cerrar el modal
+                  Navigator.of(context).pop();
+                  
+                  // Mostrar mensaje de agradecimiento
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Row(
+                        children: [
+                          Icon(Icons.thumb_up, color: Colors.white),
+                          SizedBox(width: 10),
+                          Text('¡Gracias por tu calificación!'),
+                        ],
+                      ),
+                      backgroundColor: successColor,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  );
+                  
+                  // CORRECCIÓN: Limpiar el mapa después de calificar
+                  await Future.delayed(const Duration(seconds: 1));
+                  mapController?.clearSymbols();
+                  mapController?.clearLines();
+                  
+                } catch (e) {
+                  print('❌ Cliente: Error al guardar calificación: $e');
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error al enviar calificación: $e'),
+                      backgroundColor: errorColor,
+                    ),
+                  );
+                }
+              } : null,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: successColor,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+              child: const Text(
+                "Enviar calificación",
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _onMapTap(Point<double> point, LatLng coordinates) async {
     if (destinoSymbol != null) {
       mapController!.removeSymbol(destinoSymbol!);
@@ -243,7 +486,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
       iconImage: "marker-15",
       iconSize: 1.8,
       iconColor: "#F44336", // Rojo para destino
-      textField: "📍 Destino",
+      textField: "Destino",
       textOffset: const Offset(0, 2.5),
       textSize: 12,
       textColor: "#F44336",
@@ -265,10 +508,20 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
       mapController!.removeLine(rutaLine!);
     }
 
-    final puntosRuta = await OpenRouteServiceAPI.obtenerRuta(
-      origen: ubicacionActual!,
-      destino: destinoSeleccionado!,
-    );
+    // CORRECCIÓN: Manejar error de OpenRouteService
+    List<LatLng> puntosRuta = [];
+    
+    try {
+      puntosRuta = await OpenRouteServiceAPI.obtenerRuta(
+        origen: ubicacionActual!,
+        destino: destinoSeleccionado!,
+      );
+      print('✅ Cliente: Ruta obtenida correctamente');
+    } catch (e) {
+      print('⚠️ Cliente: Error en OpenRouteService, usando línea directa: $e');
+      // FALLBACK: Si OpenRouteService falla, usar línea directa
+      puntosRuta = [ubicacionActual!, destinoSeleccionado!];
+    }
 
     if (puntosRuta.isNotEmpty) {
       rutaLine = await mapController!.addLine(LineOptions(
@@ -310,7 +563,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
       iconImage: "marker-15",
       iconSize: 1.8,
       iconColor: "#F44336",
-      textField: "🔷 Destino",
+      textField: "Destino",
       textOffset: const Offset(0, 2.5),
       textSize: 12,
       textColor: "#F44336",
