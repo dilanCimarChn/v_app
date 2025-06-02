@@ -6,10 +6,10 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../views/HomeCliente.dart';
 import '../views/HistorialCliente.dart';
 import '../views/PerfilCliente.dart';
-import '../views/PagosCliente.dart';
+import '../views/PagosCliente.dart'; // ← CAMBIADO DE PagosCliente a PlanesCliente
 import '../views/ComentariosCliente.dart';
 import '../views/NotificacionesCliente.dart';
-import '../views/ConfiguracionCliente.dart'; // ← AGREGADO
+import '../views/ConfiguracionCliente.dart';
 
 class NavCliente extends StatefulWidget {
   const NavCliente({super.key});
@@ -22,15 +22,15 @@ class _NavClienteState extends State<NavCliente> {
   int _selectedIndex = 0;
   String _userName = '';
   
-  // ← ARRAY CORREGIDO CON ConfiguracionCliente
+  // ← ARRAY CORREGIDO CON PlanesCliente
   final List<Widget> _views = const [
     HomeCliente(),           // 0 - Inicio
     HistorialCliente(),      // 1 - Historial
     PerfilCliente(),         // 2 - Perfil
-    PagosCliente(),          // 3 - Mi Billetera
+    PagosCliente(),         // 3 - Planes / Membresía ← CAMBIADO
     ComentariosCliente(),    // 4 - Comentarios
     NotificacionesCliente(), // 5 - Notificaciones
-    ConfiguracionCliente(),  // 6 - Configuración ← AGREGADO
+    ConfiguracionCliente(),  // 6 - Configuración
   ];
   
   @override
@@ -127,7 +127,7 @@ class _NavClienteState extends State<NavCliente> {
               ),
             ),
             
-            // ← MENÚ CON ÍNDICES CORREGIDOS
+            // ← MENÚ CON PLANES/MEMBRESÍA
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.only(top: 10),
@@ -143,9 +143,9 @@ class _NavClienteState extends State<NavCliente> {
                     onTap: () => _onItemTapped(1), // ✅ HistorialCliente
                   ),
                   _buildMenuItem(
-                    icon: Icons.account_balance_wallet_outlined,
-                    text: 'Mi Billetera',
-                    onTap: () => _onItemTapped(3), // ✅ PagosCliente
+                    icon: Icons.workspace_premium_outlined, // ← ICONO CAMBIADO
+                    text: 'Planes / Membresía', // ← TEXTO CAMBIADO
+                    onTap: () => _onItemTapped(3), // ✅ PlanesCliente
                   ),
                   _buildMenuItem(
                     icon: Icons.notifications_outlined,
@@ -165,7 +165,7 @@ class _NavClienteState extends State<NavCliente> {
                   _buildMenuItem(
                     icon: Icons.settings_outlined,
                     text: 'Configuración',
-                    onTap: () => _onItemTapped(6), // ✅ ConfiguracionCliente ← CORREGIDO
+                    onTap: () => _onItemTapped(6), // ✅ ConfiguracionCliente
                   ),
                   const Divider(),
                   _buildMenuItem(

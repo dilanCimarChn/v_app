@@ -20,6 +20,7 @@ class _GananciasConductorState extends State<GananciasConductor> {
   static const Color errorColor = Color(0xFFF44336);
   static const Color warningColor = Color(0xFFFF9800);
 
+  // MÉTODO CORREGIDO: Calcular ganancias
   Map<String, dynamic> _calcularGanancias(List<QueryDocumentSnapshot> viajes, String periodo) {
     final ahora = DateTime.now();
     DateTime fechaInicio;
@@ -42,27 +43,77 @@ class _GananciasConductorState extends State<GananciasConductor> {
         fechaInicio = DateTime(ahora.year, ahora.month, ahora.day);
     }
 
+    print('🔍 Calculando ganancias para período: $periodo');
+    print('📅 Fecha inicio: $fechaInicio');
+    print('📊 Total viajes disponibles: ${viajes.length}');
+
+    // CORRECCIÓN 1: Filtrar viajes por fecha usando fecha_finalizacion para viajes completados
     final viajesPeriodo = viajes.where((doc) {
       final data = doc.data() as Map<String, dynamic>;
-      final fecha = data['fecha_creacion'] as Timestamp?;
-      if (fecha == null) return false;
+      final estado = data['estado'];
       
-      final fechaViaje = fecha.toDate();
+      // Para viajes finalizados, usar fecha_finalizacion
+      if (estado == 'finalizado') {
+        final fechaFinalizacion = data['fecha_finalizacion'] as Timestamp?;
+        if (fechaFinalizacion != null) {
+          final fechaViaje = fechaFinalizacion.toDate();
+          final enPeriodo = fechaViaje.isAfter(fechaInicio) || fechaViaje.isAtSameMomentAs(fechaInicio);
+          if (enPeriodo) {
+            print('✅ Viaje finalizado en período: ${doc.id} - Fecha: $fechaViaje - Tarifa: ${data['tarifa']}');
+          }
+          return enPeriodo;
+        }
+      }
+      
+      // Para otros estados, usar fecha_creacion
+      final fechaCreacion = data['fecha_creacion'] as Timestamp?;
+      if (fechaCreacion == null) return false;
+      
+      final fechaViaje = fechaCreacion.toDate();
       return fechaViaje.isAfter(fechaInicio) || fechaViaje.isAtSameMomentAs(fechaInicio);
     }).toList();
 
-    final viajesCompletados = viajesPeriodo.where((v) => 
-        (v.data() as Map)['estado'] == 'completado').toList();
+    print('📋 Viajes en el período: ${viajesPeriodo.length}');
 
-    final totalIngresos = viajesCompletados.fold(0.0, (sum, v) => 
-        sum + ((v.data() as Map)['tarifa']?.toDouble() ?? 0.0));
+    // CORRECCIÓN 2: Buscar viajes con estado 'finalizado' en lugar de 'completado'
+    final viajesCompletados = viajesPeriodo.where((v) {
+      final estado = (v.data() as Map)['estado'];
+      final esCompleto = estado == 'finalizado';
+      if (esCompleto) {
+        final data = v.data() as Map<String, dynamic>;
+        print('💰 Viaje completado: ${v.id} - Tarifa: ${data['tarifa']} - Estado: $estado');
+      }
+      return esCompleto;
+    }).toList();
 
-    final gananciasNetas = totalIngresos * 0.8;
-    final comisionApp = totalIngresos * 0.2;
-    final distanciaTotal = viajesCompletados.fold(0.0, (sum, v) => 
-        sum + ((v.data() as Map)['distancia_km']?.toDouble() ?? 0.0));
+    print('✅ Viajes completados: ${viajesCompletados.length}');
 
-    return {
+    // CORRECCIÓN 3: Cálculo de ingresos con validación
+    double totalIngresos = 0.0;
+    for (var viaje in viajesCompletados) {
+      final data = viaje.data() as Map<String, dynamic>;
+      final tarifa = data['tarifa'];
+      
+      if (tarifa != null) {
+        final tarifaDouble = tarifa is num ? tarifa.toDouble() : 0.0;
+        totalIngresos += tarifaDouble;
+        print('💵 Sumando tarifa: $tarifaDouble - Total acumulado: $totalIngresos');
+      } else {
+        print('⚠️ Viaje sin tarifa: ${viaje.id}');
+      }
+    }
+
+    // CORRECCIÓN 4: Cálculos financieros
+    final gananciasNetas = totalIngresos * 0.8; // 80% para el conductor
+    final comisionApp = totalIngresos * 0.2;    // 20% para la app
+    
+    final distanciaTotal = viajesCompletados.fold(0.0, (sum, v) {
+      final data = v.data() as Map<String, dynamic>;
+      final distancia = data['distancia_km'];
+      return sum + (distancia is num ? distancia.toDouble() : 0.0);
+    });
+
+    final resultado = {
       'totalViajes': viajesPeriodo.length,
       'viajesCompletados': viajesCompletados.length,
       'totalIngresos': totalIngresos,
@@ -71,6 +122,9 @@ class _GananciasConductorState extends State<GananciasConductor> {
       'distanciaTotal': distanciaTotal,
       'promedioPorViaje': viajesCompletados.isNotEmpty ? gananciasNetas / viajesCompletados.length : 0.0,
     };
+
+    print('📈 Resultado final: $resultado');
+    return resultado;
   }
 
   Widget _buildPeriodoSelector() {
