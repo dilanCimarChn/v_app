@@ -25,7 +25,7 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
   Map<String, dynamic>? viajeActivo;
   String? idViaje;
   bool viajeIniciado = false;
-  Set<String> viajesMostrados = {}; // NUEVO: Para evitar duplicados
+  Set<String> viajesMostrados = {};
 
   // Colores consistentes con el mapa cliente
   static const Color primaryColor = Color(0xFF2196F3);
@@ -49,34 +49,50 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
   Future<void> _obtenerUbicacion() async {
     var status = await Permission.location.request();
     if (status != PermissionStatus.granted || !await Geolocator.isLocationServiceEnabled()) return;
-    Position posicion = await Geolocator.getCurrentPosition();
-    setState(() {
-      ubicacionConductor = LatLng(posicion.latitude, posicion.longitude);
-    });
+    
+    try {
+      Position posicion = await Geolocator.getCurrentPosition();
+      if (mounted) {
+        setState(() {
+          ubicacionConductor = LatLng(posicion.latitude, posicion.longitude);
+        });
+      }
+    } catch (e) {
+      print('❌ Error al obtener ubicación: $e');
+    }
   }
 
   void _onMapCreated(MaplibreMapController controller) async {
     mapController = controller;
-    if (ubicacionConductor != null) {
-      controller.animateCamera(CameraUpdate.newLatLngZoom(ubicacionConductor!, 15));
-      
-      // Agregar marcador del conductor con icono azul distintivo
-      conductorSymbol = await controller.addSymbol(SymbolOptions(
-        geometry: ubicacionConductor!,
-        iconImage: "marker-15",
-        iconSize: 2.0,
-        iconColor: "#2196F3", // Azul para conductor
-        textField: "🚗 Tú (Conductor)",
-        textOffset: const Offset(0, 2.8),
-        textSize: 12,
-        textColor: "#2196F3",
-        textHaloColor: "#FFFFFF",
-        textHaloWidth: 1.5,
-      ));
+    
+    // CORRECCIÓN: Esperar un poco para que el mapa se inicialice
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    if (ubicacionConductor != null && mapController != null) {
+      try {
+        await controller.animateCamera(CameraUpdate.newLatLngZoom(ubicacionConductor!, 15));
+        
+        // CORRECCIÓN: Verificar que el controlador sigue disponible
+        if (mounted && mapController != null) {
+          conductorSymbol = await controller.addSymbol(SymbolOptions(
+            geometry: ubicacionConductor!,
+            iconImage: "marker-15",
+            iconSize: 2.0,
+            iconColor: "#2196F3",
+            textField: "🚗 Tú (Conductor)",
+            textOffset: const Offset(0, 2.8),
+            textSize: 12,
+            textColor: "#2196F3",
+            textHaloColor: "#FFFFFF",
+            textHaloWidth: 1.5,
+          ));
+        }
+      } catch (e) {
+        print('❌ Error al crear símbolo en mapa: $e');
+      }
     }
   }
 
-  // MÉTODO CORREGIDO: Escuchar viajes pendientes
   void _escucharViajesPendientes() {
     print('🚗 Conductor: Iniciando listener de viajes pendientes');
     
@@ -93,23 +109,28 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
           final data = doc.data() as Map<String, dynamic>;
           
           print('📋 Conductor: Viaje encontrado - ID: $viajeId');
+          print('📊 Conductor: Datos del viaje: $data'); // DEBUG: Ver todos los datos
           
-          // CORRECCIÓN: Solo mostrar si no se ha mostrado antes Y no tenemos viaje activo
-          if (!viajesMostrados.contains(viajeId) && viajeActivo == null) {
-            print('✅ Conductor: Mostrando modal para viaje $viajeId');
-            viajesMostrados.add(viajeId);
-            
-            // CORRECCIÓN: Usar Future.delayed para asegurar sincronización
-            Future.delayed(const Duration(milliseconds: 100), () {
-              if (mounted && viajeActivo == null) {
-                _mostrarModalAceptacion(doc);
-              }
-            });
-            
-            // Solo mostrar el primer viaje pendiente
-            break;
+          // CORRECCIÓN MEJORADA: Validar coordenadas más estrictamente
+          if (_validarCoordenadasViaje(data)) {
+            if (!viajesMostrados.contains(viajeId) && viajeActivo == null) {
+              print('✅ Conductor: Mostrando modal para viaje $viajeId');
+              viajesMostrados.add(viajeId);
+              
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && viajeActivo == null) {
+                  _mostrarModalAceptacion(doc);
+                }
+              });
+              
+              break;
+            } else {
+              print('⚠️ Conductor: Viaje $viajeId ya mostrado o conductor ocupado');
+            }
           } else {
-            print('⚠️ Conductor: Viaje $viajeId ya mostrado o conductor ocupado');
+            print('❌ Conductor: Viaje $viajeId tiene coordenadas inválidas - saltando');
+            // NUEVO: Marcar como mostrado para evitar intentos repetidos
+            viajesMostrados.add(viajeId);
           }
         }
       } else {
@@ -120,39 +141,137 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
     });
   }
 
+  // NUEVA FUNCIÓN: Validar coordenadas del viaje
+  bool _validarCoordenadasViaje(Map<String, dynamic> data) {
+    // Verificar que existan todas las coordenadas necesarias
+    final origenLat = data['origen_lat'];
+    final origenLng = data['origen_lng'];
+    final destinoLat = data['destino_lat'];
+    final destinoLng = data['destino_lng'];
+    
+    print('🔍 Conductor: Validando coordenadas:');
+    print('   origen_lat: $origenLat (${origenLat.runtimeType})');
+    print('   origen_lng: $origenLng (${origenLng.runtimeType})');
+    print('   destino_lat: $destinoLat (${destinoLat.runtimeType})');
+    print('   destino_lng: $destinoLng (${destinoLng.runtimeType})');
+    
+    if (origenLat == null || origenLng == null || destinoLat == null || destinoLng == null) {
+      print('❌ Conductor: Coordenadas faltantes');
+      return false;
+    }
+    
+    // Verificar que sean números válidos
+    try {
+      final double oLat = origenLat.toDouble();
+      final double oLng = origenLng.toDouble();
+      final double dLat = destinoLat.toDouble();
+      final double dLng = destinoLng.toDouble();
+      
+      // Verificar rangos válidos de coordenadas
+      if (oLat < -90 || oLat > 90 || dLat < -90 || dLat > 90) {
+        print('❌ Conductor: Latitudes fuera de rango válido');
+        return false;
+      }
+      
+      if (oLng < -180 || oLng > 180 || dLng < -180 || dLng > 180) {
+        print('❌ Conductor: Longitudes fuera de rango válido');
+        return false;
+      }
+      
+      print('✅ Conductor: Coordenadas válidas');
+      return true;
+    } catch (e) {
+      print('❌ Conductor: Error al convertir coordenadas: $e');
+      return false;
+    }
+  }
+
   void _mostrarModalAceptacion(QueryDocumentSnapshot doc) async {
     final data = doc.data() as Map<String, dynamic>;
-    final origen = LatLng(data['origen_lat'], data['origen_lng']);
-    final destino = LatLng(data['destino_lat'], data['destino_lng']);
+    
+    // Ya sabemos que las coordenadas son válidas por la validación previa
+    final origen = LatLng(data['origen_lat'].toDouble(), data['origen_lng'].toDouble());
+    final destino = LatLng(data['destino_lat'].toDouble(), data['destino_lng'].toDouble());
 
+    // CORRECCIÓN: Validación segura de números con valores por defecto
+    double distancia = 0.0;
+    double tarifa = 0.0;
+    
     final rawDistancia = data['distancia_km'];
     final rawTarifa = data['tarifa'];
-    final double distancia = (rawDistancia is num) ? rawDistancia.toDouble() : 0.0;
-    final double tarifa = (rawTarifa is num) ? rawTarifa.toDouble() : 0.0;
+    
+    if (rawDistancia != null) {
+      try {
+        distancia = rawDistancia.toDouble();
+      } catch (e) {
+        print('⚠️ Conductor: Error al convertir distancia: $e');
+        // Calcular distancia manualmente si falla
+        distancia = _calcularDistanciaSimple(origen, destino);
+      }
+    } else {
+      // Calcular distancia si no existe
+      distancia = _calcularDistanciaSimple(origen, destino);
+    }
+    
+    if (rawTarifa != null) {
+      try {
+        tarifa = rawTarifa.toDouble();
+      } catch (e) {
+        print('⚠️ Conductor: Error al convertir tarifa: $e');
+        // Calcular tarifa manualmente si falla
+        tarifa = _calcularTarifaSimple(distancia);
+      }
+    } else {
+      // Calcular tarifa si no existe
+      tarifa = _calcularTarifaSimple(distancia);
+    }
 
     final user = FirebaseAuth.instance.currentUser;
     final conductorId = user?.uid;
-    String conductorNombre = '';
+    String conductorNombre = 'Conductor';
 
     if (user != null) {
-      final conductorQuery = await FirebaseFirestore.instance
-          .collection('usuario-app')
-          .where('email', isEqualTo: user.email)
-          .where('rol', isEqualTo: 'conductor')
-          .get();
+      try {
+        final conductorQuery = await FirebaseFirestore.instance
+            .collection('usuario-app')
+            .where('email', isEqualTo: user.email)
+            .where('rol', isEqualTo: 'conductor')
+            .get();
 
-      if (conductorQuery.docs.isNotEmpty) {
-        conductorNombre = conductorQuery.docs.first.data()['name'] ?? 'Conductor';
+        if (conductorQuery.docs.isNotEmpty) {
+          conductorNombre = conductorQuery.docs.first.data()['name'] ?? 'Conductor';
+        }
+      } catch (e) {
+        print('⚠️ Error al obtener nombre del conductor: $e');
       }
     }
 
     final clienteId = data['cliente_id'];
     String clienteNombre = 'Cliente';
 
-    final clienteDoc = await FirebaseFirestore.instance.collection('usuario-app').doc(clienteId).get();
-    if (clienteDoc.exists) {
-      clienteNombre = clienteDoc.data()?['name'] ?? 'Cliente';
+    if (clienteId != null) {
+      try {
+        final clienteDoc = await FirebaseFirestore.instance
+            .collection('usuario-app')
+            .doc(clienteId)
+            .get();
+        
+        if (clienteDoc.exists) {
+          clienteNombre = clienteDoc.data()?['name'] ?? 'Cliente';
+        }
+      } catch (e) {
+        print('⚠️ Error al obtener nombre del cliente: $e');
+      }
     }
+
+    // CORRECCIÓN: Verificar que el widget sigue montado antes de mostrar el modal
+    if (!mounted) return;
+
+    print('🎯 Conductor: Mostrando modal con datos:');
+    print('   Cliente: $clienteNombre');
+    print('   Conductor: $conductorNombre');
+    print('   Distancia: ${distancia.toStringAsFixed(2)} km');
+    print('   Tarifa: Bs. ${tarifa.toStringAsFixed(2)}');
 
     showDialog(
       context: context,
@@ -202,7 +321,6 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              // CORRECCIÓN: Remover de la lista para que pueda aparecer de nuevo si es necesario
               viajesMostrados.remove(doc.id);
             },
             style: TextButton.styleFrom(
@@ -213,28 +331,43 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
           ),
           ElevatedButton(
             onPressed: () async {
-              // CORRECCIÓN: Actualizar con timestamp para mejor sincronización
-              await FirebaseFirestore.instance.collection('viajes').doc(doc.id).update({
-                'estado': 'aceptado',
-                'conductor_id': conductorId,
-                'conductor_nombre': conductorNombre,
-                'cliente_nombre': clienteNombre,
-                'distancia_km': distancia,
-                'tarifa': tarifa,
-                'fecha_aceptacion': FieldValue.serverTimestamp(), // NUEVO
-              });
-              Navigator.pop(context);
-              setState(() {
-                viajeActivo = {
-                  ...data,
+              try {
+                print('📝 Conductor: Actualizando viaje en Firestore');
+                await FirebaseFirestore.instance.collection('viajes').doc(doc.id).update({
+                  'estado': 'aceptado',
+                  'conductor_id': conductorId,
                   'conductor_nombre': conductorNombre,
                   'cliente_nombre': clienteNombre,
                   'distancia_km': distancia,
                   'tarifa': tarifa,
-                };
-                idViaje = doc.id;
-              });
-              _mostrarRutaAlCliente(origen);
+                  'fecha_aceptacion': FieldValue.serverTimestamp(),
+                });
+                
+                if (mounted) {
+                  Navigator.pop(context);
+                  setState(() {
+                    viajeActivo = {
+                      ...data,
+                      'conductor_nombre': conductorNombre,
+                      'cliente_nombre': clienteNombre,
+                      'distancia_km': distancia,
+                      'tarifa': tarifa,
+                    };
+                    idViaje = doc.id;
+                  });
+                  _mostrarRutaAlCliente(origen);
+                }
+              } catch (e) {
+                print('❌ Error al aceptar viaje: $e');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error al aceptar viaje: $e'),
+                      backgroundColor: errorColor,
+                    ),
+                  );
+                }
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: successColor,
@@ -246,6 +379,26 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
         ],
       ),
     );
+  }
+
+  // NUEVAS FUNCIONES: Cálculos de respaldo
+  double _calcularDistanciaSimple(LatLng origen, LatLng destino) {
+    try {
+      final distanciaMetros = Geolocator.distanceBetween(
+        origen.latitude, origen.longitude,
+        destino.latitude, destino.longitude,
+      );
+      return distanciaMetros / 1000; // Convertir a kilómetros
+    } catch (e) {
+      print('❌ Error al calcular distancia: $e');
+      return 5.0; // Valor por defecto
+    }
+  }
+
+  double _calcularTarifaSimple(double distanciaKm) {
+    const double precioBase = 5.0;
+    const double precioPorKm = 3.5;
+    return precioBase + (distanciaKm * precioPorKm);
   }
 
   Widget _buildInfoRow(IconData icon, String label, String value, Color color) {
@@ -273,68 +426,71 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
 
     print('🗺️ Conductor: Trazando ruta al cliente');
 
-    // CORRECCIÓN: Intentar obtener ruta, si falla usar línea directa
-    List<LatLng> puntos = [];
-    
     try {
-      puntos = await OpenRouteServiceAPI.obtenerRuta(
-        origen: ubicacionConductor!,
-        destino: clienteOrigen,
-      );
-      print('✅ Conductor: Ruta obtenida de OpenRouteService');
+      List<LatLng> puntos = [];
+      
+      try {
+        puntos = await OpenRouteServiceAPI.obtenerRuta(
+          origen: ubicacionConductor!,
+          destino: clienteOrigen,
+        );
+        print('✅ Conductor: Ruta obtenida de OpenRouteService');
+      } catch (e) {
+        print('⚠️ Conductor: OpenRouteService falló, usando línea directa: $e');
+        puntos = [ubicacionConductor!, clienteOrigen];
+      }
+
+      if (mapController != null) {
+        await mapController!.clearLines();
+        await mapController!.clearSymbols();
+        
+        // Agregar conductor (yo) con icono azul
+        conductorSymbol = await mapController!.addSymbol(SymbolOptions(
+          geometry: ubicacionConductor!,
+          iconImage: "marker-15",
+          iconSize: 2.0,
+          iconColor: "#2196F3",
+          textField: "🚗 Tú (Conductor)",
+          textOffset: const Offset(0, 2.8),
+          textSize: 12,
+          textColor: "#2196F3",
+          textHaloColor: "#FFFFFF",
+          textHaloWidth: 1.5,
+        ));
+        
+        // Agregar cliente con icono verde
+        origenSymbol = await mapController!.addSymbol(SymbolOptions(
+          geometry: clienteOrigen,
+          iconImage: "marker-15",
+          iconSize: 1.8,
+          iconColor: "#4CAF50",
+          textField: "🏠 Cliente (Origen)",
+          textOffset: const Offset(0, 2.5),
+          textSize: 12,
+          textColor: "#4CAF50",
+          textHaloColor: "#FFFFFF",
+          textHaloWidth: 1.5,
+        ));
+
+        // Ruta hacia el cliente con color distintivo
+        if (puntos.isNotEmpty) {
+          rutaLine = await mapController!.addLine(LineOptions(
+            geometry: puntos,
+            lineColor: "#FF9800",
+            lineWidth: 6,
+            lineOpacity: 0.8,
+          ));
+        }
+        
+        // Centrar el mapa para mostrar ambos puntos
+        final bounds = _calcularBounds([ubicacionConductor!, clienteOrigen]);
+        await mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds));
+      }
     } catch (e) {
-      print('⚠️ Conductor: OpenRouteService falló, usando línea directa: $e');
-      // FALLBACK: Si OpenRouteService falla, usar línea directa
-      puntos = [ubicacionConductor!, clienteOrigen];
+      print('❌ Error al mostrar ruta al cliente: $e');
     }
-
-    mapController!.clearLines();
-    mapController!.clearSymbols();
-    
-    // Agregar conductor (yo) con icono azul
-    conductorSymbol = await mapController!.addSymbol(SymbolOptions(
-      geometry: ubicacionConductor!,
-      iconImage: "marker-15",
-      iconSize: 2.0,
-      iconColor: "#2196F3",
-      textField: "🚗 Tú (Conductor)",
-      textOffset: const Offset(0, 2.8),
-      textSize: 12,
-      textColor: "#2196F3",
-      textHaloColor: "#FFFFFF",
-      textHaloWidth: 1.5,
-    ));
-    
-    // Agregar cliente con icono verde
-    origenSymbol = await mapController!.addSymbol(SymbolOptions(
-      geometry: clienteOrigen,
-      iconImage: "marker-15",
-      iconSize: 1.8,
-      iconColor: "#4CAF50",
-      textField: "🏠 Cliente (Origen)",
-      textOffset: const Offset(0, 2.5),
-      textSize: 12,
-      textColor: "#4CAF50",
-      textHaloColor: "#FFFFFF",
-      textHaloWidth: 1.5,
-    ));
-
-    // Ruta hacia el cliente con color distintivo
-    if (puntos.isNotEmpty) {
-      rutaLine = await mapController!.addLine(LineOptions(
-        geometry: puntos,
-        lineColor: "#FF9800", // Naranja para ruta hacia cliente
-        lineWidth: 6,
-        lineOpacity: 0.8,
-      ));
-    }
-    
-    // CORRECCIÓN: Centrar el mapa para mostrar ambos puntos
-    final bounds = _calcularBounds([ubicacionConductor!, clienteOrigen]);
-    await mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds));
   }
 
-  // NUEVO MÉTODO: Calcular bounds para mostrar ambos puntos
   LatLngBounds _calcularBounds(List<LatLng> puntos) {
     double minLat = puntos.first.latitude;
     double maxLat = puntos.first.latitude;
@@ -348,8 +504,7 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
       maxLng = maxLng > punto.longitude ? maxLng : punto.longitude;
     }
 
-    // Agregar un pequeño padding a los bounds
-    const padding = 0.001; // ~100 metros
+    const padding = 0.001;
     
     return LatLngBounds(
       southwest: LatLng(minLat - padding, minLng - padding),
@@ -362,83 +517,87 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
 
     print('🚀 Conductor: Iniciando viaje');
 
-    final destino = LatLng(viajeActivo!['destino_lat'], viajeActivo!['destino_lng']);
-    final origen = LatLng(viajeActivo!['origen_lat'], viajeActivo!['origen_lng']);
-    
-    // CORRECCIÓN: Manejar error de OpenRouteService
-    List<LatLng> puntos = [];
-    
     try {
-      puntos = await OpenRouteServiceAPI.obtenerRuta(
-        origen: origen,
-        destino: destino,
-      );
-      print('✅ Conductor: Ruta del viaje obtenida');
+      final destino = LatLng(viajeActivo!['destino_lat'], viajeActivo!['destino_lng']);
+      final origen = LatLng(viajeActivo!['origen_lat'], viajeActivo!['origen_lng']);
+      
+      List<LatLng> puntos = [];
+      
+      try {
+        puntos = await OpenRouteServiceAPI.obtenerRuta(
+          origen: origen,
+          destino: destino,
+        );
+        print('✅ Conductor: Ruta del viaje obtenida');
+      } catch (e) {
+        print('⚠️ Conductor: Error en ruta, usando línea directa: $e');
+        puntos = [origen, destino];
+      }
+
+      if (mapController != null) {
+        await mapController!.clearLines();
+        await mapController!.clearSymbols();
+        
+        // Origen del cliente
+        origenSymbol = await mapController!.addSymbol(SymbolOptions(
+          geometry: origen,
+          iconImage: "marker-15",
+          iconSize: 1.8,
+          iconColor: "#4CAF50",
+          textField: "🏠 Origen",
+          textOffset: const Offset(0, 2.5),
+          textSize: 12,
+          textColor: "#4CAF50",
+          textHaloColor: "#FFFFFF",
+          textHaloWidth: 1.5,
+        ));
+        
+        // Destino del viaje
+        destinoSymbol = await mapController!.addSymbol(SymbolOptions(
+          geometry: destino,
+          iconImage: "marker-15",
+          iconSize: 1.8,
+          iconColor: "#F44336",
+          textField: "🎯 Destino",
+          textOffset: const Offset(0, 2.5),
+          textSize: 12,
+          textColor: "#F44336",
+          textHaloColor: "#FFFFFF",
+          textHaloWidth: 1.5,
+        ));
+
+        // Ruta del viaje
+        if (puntos.isNotEmpty) {
+          await mapController!.addLine(LineOptions(
+            geometry: puntos,
+            lineColor: "#4CAF50",
+            lineWidth: 6,
+            lineOpacity: 0.8,
+          ));
+        }
+      }
+
+      await FirebaseFirestore.instance.collection('viajes').doc(idViaje!).update({
+        'estado': 'en_curso',
+        'fecha_inicio': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        setState(() {
+          viajeIniciado = true;
+        });
+      }
+      
+      print('✅ Conductor: Viaje iniciado correctamente');
     } catch (e) {
-      print('⚠️ Conductor: Error en ruta, usando línea directa: $e');
-      puntos = [origen, destino];
+      print('❌ Error al iniciar viaje: $e');
     }
-
-    mapController!.clearLines();
-    mapController!.clearSymbols();
-    
-    // Origen del cliente (donde lo recogiste)
-    origenSymbol = await mapController!.addSymbol(SymbolOptions(
-      geometry: origen,
-      iconImage: "marker-15",
-      iconSize: 1.8,
-      iconColor: "#4CAF50",
-      textField: "🏠 Origen",
-      textOffset: const Offset(0, 2.5),
-      textSize: 12,
-      textColor: "#4CAF50",
-      textHaloColor: "#FFFFFF",
-      textHaloWidth: 1.5,
-    ));
-    
-    // Destino del viaje
-    destinoSymbol = await mapController!.addSymbol(SymbolOptions(
-      geometry: destino,
-      iconImage: "marker-15",
-      iconSize: 1.8,
-      iconColor: "#F44336",
-      textField: "🎯 Destino",
-      textOffset: const Offset(0, 2.5),
-      textSize: 12,
-      textColor: "#F44336",
-      textHaloColor: "#FFFFFF",
-      textHaloWidth: 1.5,
-    ));
-
-    // Ruta del viaje
-    if (puntos.isNotEmpty) {
-      await mapController!.addLine(LineOptions(
-        geometry: puntos,
-        lineColor: "#4CAF50",
-        lineWidth: 6,
-        lineOpacity: 0.8,
-      ));
-    }
-
-    // CORRECCIÓN: Agregar timestamp de inicio
-    await FirebaseFirestore.instance.collection('viajes').doc(idViaje!).update({
-      'estado': 'en_curso',
-      'fecha_inicio': FieldValue.serverTimestamp(),
-    });
-
-    setState(() {
-      viajeIniciado = true;
-    });
-    
-    print('✅ Conductor: Viaje iniciado correctamente');
   }
 
-  // MÉTODO CORREGIDO: Finalizar viaje
   Future<void> _finalizarViaje() async {
     if (idViaje == null) return;
 
     try {
-      // CORRECCIÓN: Usar batch para asegurar atomicidad
       final batch = FirebaseFirestore.instance.batch();
       final viajeRef = FirebaseFirestore.instance.collection('viajes').doc(idViaje!);
       
@@ -449,39 +608,43 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
       
       await batch.commit();
 
-      // CORRECCIÓN: Limpiar estado local
-      setState(() {
-        viajeActivo = null;
-        idViaje = null;
-        viajeIniciado = false;
-      });
+      if (mounted) {
+        setState(() {
+          viajeActivo = null;
+          idViaje = null;
+          viajeIniciado = false;
+        });
+      }
 
-      // Limpiar mapa
       mapController?.clearLines();
       mapController?.clearSymbols();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.check_circle, color: Colors.white),
-              SizedBox(width: 10),
-              Text('¡Viaje finalizado con éxito!'),
-            ],
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 10),
+                Text('¡Viaje finalizado con éxito!'),
+              ],
+            ),
+            backgroundColor: successColor,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
-          backgroundColor: successColor,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
+        );
+      }
     } catch (e) {
-      print('Error al finalizar viaje: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error al finalizar viaje: $e'),
-          backgroundColor: errorColor,
-        ),
-      );
+      print('❌ Error al finalizar viaje: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al finalizar viaje: $e'),
+            backgroundColor: errorColor,
+          ),
+        );
+      }
     }
   }
 
@@ -494,32 +657,35 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
         'fecha_cancelacion': FieldValue.serverTimestamp(),
       });
 
-      setState(() {
-        viajeActivo = null;
-        idViaje = null;
-        viajeIniciado = false;
-      });
+      if (mounted) {
+        setState(() {
+          viajeActivo = null;
+          idViaje = null;
+          viajeIniciado = false;
+        });
+      }
 
-      // Limpiar mapa
       mapController?.clearLines();
       mapController?.clearSymbols();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Row(
-            children: [
-              Icon(Icons.cancel, color: Colors.white),
-              SizedBox(width: 10),
-              Text('Viaje cancelado'),
-            ],
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.cancel, color: Colors.white),
+                SizedBox(width: 10),
+                Text('Viaje cancelado'),
+              ],
+            ),
+            backgroundColor: errorColor,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
-          backgroundColor: errorColor,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
+        );
+      }
     } catch (e) {
-      print('Error al cancelar viaje: $e');
+      print('❌ Error al cancelar viaje: $e');
     }
   }
 
@@ -624,7 +790,7 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
                   ),
                 ),
               
-              // NUEVA SECCIÓN: Botones de acción mejorados
+              // Botones de acción mejorados
               if (viajeActivo != null)
                 Positioned(
                   bottom: 30,

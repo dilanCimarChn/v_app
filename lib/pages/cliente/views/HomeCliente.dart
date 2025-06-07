@@ -1,32 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 import '../widgets/MapaClienteWidget.dart';
 
 class HomeCliente extends StatelessWidget {
   const HomeCliente({super.key});
 
   // ⚠ Reemplaza por la URL actual generada por Ngrok
-  final String ngrokUrl = 'https://2f68-2800-cd0-165-3459-d11f-a8e1-bbe5-b4b2.ngrok-free.app';
+  final String ngrokUrl = 'https://5fd1-131-0-196-140.ngrok-free.app/';
 
-  void _abrirStream(BuildContext context) async {
-    final Uri url = Uri.parse(ngrokUrl);
-
-    try {
-      // Lanza directamente el navegador sin verificar con canLaunchUrl
-      final bool launched = await launchUrl(
-        url,
-        mode: LaunchMode.externalApplication,
-      );
-
-      if (!launched) {
-        throw 'No se pudo abrir el navegador';
-      }
-    } catch (e) {
-      // Muestra error visual en caso de fallo
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al abrir el stream: $e')),
-      );
-    }
+  void _abrirStreamModal(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false, // No se cierra tocando fuera
+      builder: (BuildContext context) {
+        return StreamModal(url: ngrokUrl);
+      },
+    );
   }
 
   @override
@@ -59,7 +48,7 @@ class HomeCliente extends StatelessWidget {
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             ),
-            onPressed: () => _abrirStream(context),
+            onPressed: () => _abrirStreamModal(context),
           ),
         ),
 
@@ -71,6 +60,137 @@ class HomeCliente extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class StreamModal extends StatefulWidget {
+  final String url;
+  
+  const StreamModal({super.key, required this.url});
+
+  @override
+  State<StreamModal> createState() => _StreamModalState();
+}
+
+class _StreamModalState extends State<StreamModal> {
+  late final WebViewController controller;
+  bool isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Configurar el WebViewController
+    controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (String url) {
+            setState(() {
+              isLoading = true;
+            });
+          },
+          onPageFinished: (String url) {
+            setState(() {
+              isLoading = false;
+            });
+          },
+          onWebResourceError: (WebResourceError error) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Error al cargar: ${error.description}'),
+                backgroundColor: Colors.red,
+              ),
+            );
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(widget.url));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      insetPadding: const EdgeInsets.all(10),
+      child: Container(
+        width: MediaQuery.of(context).size.width,
+        height: MediaQuery.of(context).size.height * 0.8,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          color: Colors.white,
+        ),
+        child: Column(
+          children: [
+            // Header con botón cerrar
+            Container(
+              height: 60,
+              decoration: const BoxDecoration(
+                color: Colors.redAccent,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Padding(
+                      padding: EdgeInsets.only(left: 16),
+                      child: Text(
+                        'Cámara en Vivo',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(
+                      Icons.close,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // WebView content
+            Expanded(
+              child: Stack(
+                children: [
+                  WebViewWidget(controller: controller),
+                  
+                  // Indicador de carga
+                  if (isLoading)
+                    const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircularProgressIndicator(
+                            color: Colors.redAccent,
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            'Cargando stream...',
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

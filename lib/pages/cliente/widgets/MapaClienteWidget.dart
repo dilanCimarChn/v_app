@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:v_app/services/firebase_service.dart';
 import 'package:v_app/services/openrouteservice_api.dart';
+import 'package:v_app/services/membresia_service.dart'; // NUEVA IMPORTACIÓN
 
 class MapaClienteWidget extends StatefulWidget {
   const MapaClienteWidget({super.key});
@@ -31,23 +32,41 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
   bool modalMostrado = false;
   bool modalCalificacionMostrado = false;
 
+  // NUEVAS VARIABLES PARA PREMIUM
+  bool tienePlanPremium = false;
+  int viajesRestantes = 0;
+  double descuentoPorcentaje = 15.0;
+
   // Colores mejorados
   static const Color primaryColor = Color(0xFF2196F3);
   static const Color successColor = Color(0xFF4CAF50);
   static const Color warningColor = Color(0xFFFF9800);
   static const Color errorColor = Color(0xFFF44336);
+  static const Color premiumColor = Color(0xFFFFD700); // NUEVO COLOR PREMIUM
 
   @override
   void initState() {
     super.initState();
     _obtenerUbicacion();
     _escucharViajeAsignado();
+    _verificarPlanPremium(); // NUEVA FUNCIÓN
   }
 
   @override
   void dispose() {
     viajeListener?.cancel();
     super.dispose();
+  }
+
+  // NUEVA FUNCIÓN: Verificar plan premium
+  Future<void> _verificarPlanPremium() async {
+    final planInfo = await MembresiaService.verificarPlanPremium();
+    if (mounted) {
+      setState(() {
+        tienePlanPremium = planInfo['activo'] ?? false;
+        viajesRestantes = planInfo['viajes_restantes'] ?? 0;
+      });
+    }
   }
 
   Future<void> _obtenerUbicacion() async {
@@ -576,7 +595,18 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
     mapController!.animateCamera(CameraUpdate.newLatLngZoom(coordenadas, 15));
   }
 
+  // FUNCIÓN MODIFICADA CON DESCUENTOS PREMIUM
   void _mostrarEstimacion(double distancia, double tarifa) {
+    // Calcular descuento si tiene plan premium
+    double tarifaOriginal = tarifa;
+    double descuentoMonto = 0.0;
+    double tarifaFinal = tarifa;
+    
+    if (tienePlanPremium && viajesRestantes > 0) {
+      descuentoMonto = tarifa * (descuentoPorcentaje / 100);
+      tarifaFinal = tarifa - descuentoMonto;
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -624,6 +654,58 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
               
               const SizedBox(height: 25),
               
+              // NUEVA SECCIÓN: Información premium si aplica
+              if (tienePlanPremium && viajesRestantes > 0) ...[
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.star, color: Colors.white, size: 24),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              "¡Descuento Premium Aplicado!",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                            Text(
+                              "Viajes restantes: $viajesRestantes",
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        "-${descuentoPorcentaje.toInt()}%",
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 15),
+              ],
+              
               // Información del viaje mejorada
               Container(
                 padding: const EdgeInsets.all(20),
@@ -636,7 +718,23 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
                   children: [
                     _buildInfoRow(Icons.straighten, "Distancia", "${distancia.toStringAsFixed(2)} km", primaryColor),
                     const SizedBox(height: 15),
-                    _buildInfoRow(Icons.attach_money, "Costo estimado", "Bs. ${tarifa.toStringAsFixed(2)}", successColor),
+                    
+                    // MOSTRAR TARIFA ORIGINAL SI HAY DESCUENTO
+                    if (descuentoMonto > 0) ...[
+                      _buildInfoRow(Icons.money_off, "Precio original", "Bs. ${tarifaOriginal.toStringAsFixed(2)}", Colors.grey),
+                      const SizedBox(height: 10),
+                      _buildInfoRow(Icons.discount, "Descuento (-${descuentoPorcentaje.toInt()}%)", "-Bs. ${descuentoMonto.toStringAsFixed(2)}", premiumColor),
+                      const SizedBox(height: 10),
+                      const Divider(),
+                      const SizedBox(height: 10),
+                    ],
+                    
+                    _buildInfoRow(
+                      Icons.attach_money, 
+                      descuentoMonto > 0 ? "Total a pagar" : "Costo estimado", 
+                      "Bs. ${tarifaFinal.toStringAsFixed(2)}", 
+                      successColor
+                    ),
                   ],
                 ),
               ),
@@ -655,13 +753,22 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
                         destino: destinoSeleccionado!,
                       );
                       if (mounted) {
+                        // ACTUALIZAR INFORMACIÓN PREMIUM DESPUÉS DE CREAR VIAJE
+                        await _verificarPlanPremium();
+                        
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: const Row(
+                            content: Row(
                               children: [
-                                Icon(Icons.check_circle, color: Colors.white),
-                                SizedBox(width: 10),
-                                Text('¡Viaje solicitado con éxito!'),
+                                const Icon(Icons.check_circle, color: Colors.white),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    descuentoMonto > 0 
+                                      ? '¡Viaje solicitado con descuento premium!'
+                                      : '¡Viaje solicitado con éxito!'
+                                  ),
+                                ),
                               ],
                             ),
                             backgroundColor: successColor,
@@ -678,14 +785,14 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
                     elevation: 3,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.check_circle, color: Colors.white),
-                      SizedBox(width: 10),
+                      const Icon(Icons.check_circle, color: Colors.white),
+                      const SizedBox(width: 10),
                       Text(
-                        "Confirmar viaje",
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white),
+                        descuentoMonto > 0 ? "Confirmar con descuento" : "Confirmar viaje",
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.white),
                       ),
                     ],
                   ),
@@ -720,6 +827,62 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
     );
   }
 
+  // NUEVA FUNCIÓN: Widget para mostrar estado premium
+  Widget _buildPremiumBanner() {
+    if (!tienePlanPremium) return const SizedBox.shrink();
+    
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFD700), Color(0xFFFFA500)],
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFFFD700).withOpacity(0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.star, color: Colors.white, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              "Premium activo • $viajesRestantes viajes restantes",
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Text(
+              "-15%",
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ubicacionActual == null
@@ -738,6 +901,9 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
           )
         : Column(
             children: [
+              // NUEVO: Banner premium
+              _buildPremiumBanner(),
+              
               // Barra de búsqueda mejorada
               Container(
                 margin: const EdgeInsets.all(16),
