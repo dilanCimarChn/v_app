@@ -46,7 +46,8 @@ dependencies:
   # gmail 
   http: ^1.1.0
   mailer: ^6.0.1 
-
+ # camara stream
+  webview_flutter: ^4.4.2
 
 
   #mapa para la navegacion

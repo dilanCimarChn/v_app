@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:uuid/uuid.dart';
+import 'membresia_service.dart'; // Importar el servicio de membresías
 
 final _firestore = FirebaseFirestore.instance;
 final _auth = FirebaseAuth.instance;
@@ -22,7 +23,26 @@ Future<void> crearViajeEnFirebase({
   final String viajeId = const Uuid().v4();
 
   final double distanciaKm = calcularDistanciaKm(origen, destino);
-  final double tarifa = calcularTarifa(distanciaKm);
+  
+  // NUEVA FUNCIONALIDAD: Verificar plan premium y aplicar descuento
+  final planPremium = await MembresiaService.verificarPlanPremium();
+  final bool tienePremium = planPremium['activo'] ?? false;
+  final double tarifaOriginal = calcularTarifa(distanciaKm);
+  
+  double tarifaFinal = tarifaOriginal;
+  double descuentoAplicado = 0.0;
+  bool descuentoPremiumAplicado = false;
+  
+  if (tienePremium) {
+    descuentoAplicado = tarifaOriginal * 0.15; // 15% de descuento
+    tarifaFinal = tarifaOriginal - descuentoAplicado;
+    descuentoPremiumAplicado = true;
+    
+    print('✨ Descuento premium aplicado: ${descuentoAplicado.toStringAsFixed(2)} Bs');
+    print('💰 Tarifa original: ${tarifaOriginal.toStringAsFixed(2)} Bs');
+    print('💰 Tarifa con descuento: ${tarifaFinal.toStringAsFixed(2)} Bs');
+  }
+  
   final int tiempoEstimado = (distanciaKm * 2).round(); // Ejemplo: 2 min/km
 
   final Map<String, dynamic> data = {
@@ -34,14 +54,29 @@ Future<void> crearViajeEnFirebase({
     'destino_lng': destino.longitude,
     'estado': 'pendiente',
     'distancia_km': distanciaKm,
-    'tarifa': tarifa,
+    'tarifa_original': tarifaOriginal, // NUEVO: Tarifa sin descuento
+    'tarifa': tarifaFinal, // Tarifa final (con descuento si aplica)
+    'descuento_aplicado': descuentoAplicado, // NUEVO: Monto del descuento
+    'descuento_premium': descuentoPremiumAplicado, // NUEVO: Si se aplicó descuento premium
     'tiempo_estimado': tiempoEstimado,
     'fecha_inicio': DateTime.now(), // se verá de inmediato
     'fecha_creacion': FieldValue.serverTimestamp(), // para orden en server
   };
 
   try {
+    // Crear el viaje
     await _firestore.collection('viajes').doc(viajeId).set(data);
+    
+    // NUEVA FUNCIONALIDAD: Si se aplicó descuento premium, descontar un viaje del plan
+    if (descuentoPremiumAplicado) {
+      final viajePremiumUsado = await MembresiaService.usarViajePremium();
+      if (viajePremiumUsado) {
+        print('✅ Viaje premium usado correctamente');
+      } else {
+        print('⚠️ No se pudo descontar el viaje premium, pero el viaje se creó');
+      }
+    }
+    
     print('✅ Viaje creado correctamente en Firebase con ID: $viajeId');
   } catch (e) {
     print('❌ Error al guardar viaje: $e');
@@ -77,4 +112,14 @@ double calcularTarifa(double distanciaKm) {
 
 double _gradosARadianes(double grados) {
   return grados * (pi / 180);
+}
+
+// NUEVA FUNCIÓN: Obtener información de descuento para mostrar en UI
+Future<Map<String, dynamic>> obtenerInfoDescuento() async {
+  final planPremium = await MembresiaService.verificarPlanPremium();
+  return {
+    'tiene_premium': planPremium['activo'] ?? false,
+    'viajes_restantes': planPremium['viajes_restantes'] ?? 0,
+    'descuento_porcentaje': 15,
+  };
 }
