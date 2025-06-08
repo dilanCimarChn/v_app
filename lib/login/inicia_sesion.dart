@@ -37,7 +37,7 @@ class IniciaSesion extends StatelessWidget {
               child: Container(
                 width: double.infinity,
                 decoration: const BoxDecoration(
-                  color: Color.fromARGB(255, 4, 134, 91),
+                  color: Color.fromARGB(255, 14, 156, 146),
                   borderRadius: BorderRadius.only(
                     topLeft: Radius.circular(40),
                     topRight: Radius.circular(40),

@@ -86,7 +86,7 @@ class _NavConductorState extends State<NavConductor> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.orangeAccent,
+        backgroundColor: Colors.teal.shade400,
         title: const Text("Rol: Conductor"),
       ),
       drawer: Drawer(

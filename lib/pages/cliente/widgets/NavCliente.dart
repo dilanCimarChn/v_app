@@ -88,7 +88,7 @@ class _NavClienteState extends State<NavCliente> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: Colors.blueAccent,
+        backgroundColor: Colors.green.shade400,
         automaticallyImplyLeading: true,
         title: const Text("Rol: Cliente"),
       ),

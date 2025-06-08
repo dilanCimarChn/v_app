@@ -16,7 +16,7 @@ class _HistorialConductorState extends State<HistorialConductor> with SingleTick
   String _filtroSeleccionado = 'todos';
   
   // Colores consistentes
-  static const Color primaryColor = Color(0xFF2196F3);
+  static const Color primaryColor = Color.fromARGB(255, 13, 163, 205);
   static const Color successColor = Color(0xFF4CAF50);
   static const Color errorColor = Color(0xFFF44336);
   static const Color warningColor = Color(0xFFFF9800);
@@ -940,9 +940,9 @@ class _HistorialConductorState extends State<HistorialConductor> with SingleTick
           unselectedLabelColor: Colors.grey,
           indicatorColor: primaryColor,
           tabs: const [
-            Tab(text: "📋 Viajes"),
-            Tab(text: "📅 Hoy"),
-            Tab(text: "📊 Estadísticas"),
+            Tab(text: "Viajes"),
+            Tab(text: "Hoy"),
+            Tab(text: "Estadísticas"),
           ],
         ),
       ),
