@@ -6,6 +6,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:maplibre_gl/maplibre_gl.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:v_app/services/openrouteservice_api.dart';
+import '../../../services/conductor_state_service.dart';
+import '../../../services/location_service.dart';
 
 class MapaConductorWidget extends StatefulWidget {
   const MapaConductorWidget({super.key});
@@ -27,6 +29,14 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
   bool viajeIniciado = false;
   Set<String> viajesMostrados = {};
 
+  // NUEVAS VARIABLES para estado del conductor
+  final ConductorStateService _stateService = ConductorStateService();
+  final LocationService _locationService = LocationService();
+  bool _isActive = false;
+  bool _isLoading = false;
+  StreamSubscription? _stateSubscription;
+  Timer? _locationUpdateTimer;
+
   // Colores consistentes con el mapa cliente
   static const Color primaryColor = Color(0xFF2196F3);
   static const Color successColor = Color(0xFF4CAF50);
@@ -36,6 +46,7 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
   @override
   void initState() {
     super.initState();
+    _initializeConductor(); // NUEVO: Inicializar estado del conductor
     _obtenerUbicacion();
     _escucharViajesPendientes();
   }
@@ -43,7 +54,161 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
   @override
   void dispose() {
     _viajeSubscription?.cancel();
+    _stateSubscription?.cancel(); // NUEVO
+    _locationUpdateTimer?.cancel(); // NUEVO
+    _stateService.dispose(); // NUEVO
     super.dispose();
+  }
+
+  // NUEVO MÉTODO: Inicializar estado del conductor
+  Future<void> _initializeConductor() async {
+    try {
+      await _stateService.initialize();
+      setState(() {
+        _isActive = _stateService.isActive;
+      });
+
+      // Escuchar cambios de estado
+      _stateSubscription = _stateService.getStateStream().listen((isActive) {
+        if (mounted) {
+          setState(() {
+            _isActive = isActive;
+          });
+          _updateConductorMarker(); // Actualizar marcador según estado
+        }
+      });
+
+      // Si está activo, iniciar actualizaciones de ubicación
+      if (_isActive) {
+        _startLocationUpdates();
+      }
+    } catch (e) {
+      print('Error inicializando conductor: $e');
+    }
+  }
+
+  // NUEVO MÉTODO: Iniciar actualizaciones de ubicación
+  void _startLocationUpdates() {
+    _locationUpdateTimer = Timer.periodic(Duration(seconds: 30), (timer) async {
+      if (_isActive && mounted) {
+        final position = await _locationService.getCurrentPosition();
+        if (position != null) {
+          final newLocation = LatLng(position.latitude, position.longitude);
+          setState(() {
+            ubicacionConductor = newLocation;
+          });
+          _updateConductorMarker();
+        }
+      }
+    });
+  }
+
+  // NUEVO MÉTODO: Alternar estado del conductor
+  Future<void> _toggleActiveState() async {
+    if (_isLoading) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      print('🔄 === INICIO DEBUG TOGGLE STATE ===');
+      print('🔄 Estado actual: $_isActive');
+      print('🔄 Conductor ID: ${_stateService.conductorId}');
+      
+      // Verificar que el servicio esté inicializado
+      if (_stateService.conductorId == null) {
+        print('❌ ID de conductor es null, reinicializando...');
+        final initSuccess = await _stateService.initialize();
+        print('🔄 Reinicialización: $initSuccess');
+        if (!initSuccess) {
+          throw Exception('No se pudo inicializar el servicio');
+        }
+      }
+
+      print('🔄 Llamando a toggleActiveState...');
+      final success = await _stateService.toggleActiveState();
+      print('🔄 Resultado toggleActiveState: $success');
+      
+      if (success) {
+        print('✅ Estado cambiado exitosamente');
+        _isActive = _stateService.isActive;
+        print('🔄 Nuevo estado: $_isActive');
+        
+        if (_isActive) {
+          _startLocationUpdates();
+          _showSuccessMessage('Conductor activado - Ubicación compartida');
+          
+          // Actualizar ubicación inmediatamente
+          print('🔄 Obteniendo ubicación inicial...');
+          final position = await _locationService.getCurrentPosition();
+          if (position != null) {
+            print('📍 Ubicación obtenida: ${position.latitude}, ${position.longitude}');
+            setState(() {
+              ubicacionConductor = LatLng(position.latitude, position.longitude);
+            });
+          } else {
+            print('⚠️ No se pudo obtener ubicación inicial');
+          }
+        } else {
+          _locationUpdateTimer?.cancel();
+          _showSuccessMessage('Conductor desactivado');
+        }
+        
+        _updateConductorMarker();
+      } else {
+        print('❌ toggleActiveState retornó false');
+        _showErrorMessage('No se pudo cambiar el estado del conductor');
+      }
+    } catch (e) {
+      print('❌ ERROR en _toggleActiveState: $e');
+      print('❌ Stack trace: ${StackTrace.current}');
+      _showErrorMessage('Error: ${e.toString()}');
+    } finally {
+      print('🔄 === FIN DEBUG TOGGLE STATE ===');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  // MÉTODO ACTUALIZADO: Actualizar marcador del conductor
+  void _updateConductorMarker() async {
+    if (mapController == null || ubicacionConductor == null) return;
+
+    // Remover marcador anterior si existe
+    if (conductorSymbol != null) {
+      await mapController!.removeSymbol(conductorSymbol!);
+      conductorSymbol = null;
+    }
+
+    // Solo agregar marcador si hay viaje activo O si el conductor está activo
+    if (viajeActivo != null || _isActive) {
+      String textField = "🚗 Tú (Conductor)";
+      String iconColor = "#2196F3";
+      
+      // Cambiar apariencia según el estado
+      if (!_isActive && viajeActivo == null) {
+        textField = "🚗 Tú (Inactivo)";
+        iconColor = "#9E9E9E"; // Gris para inactivo
+      } else if (viajeActivo != null) {
+        textField = "🚗 Tú (En viaje)";
+        iconColor = "#FF9800"; // Naranja para en viaje
+      }
+
+      conductorSymbol = await mapController!.addSymbol(SymbolOptions(
+        geometry: ubicacionConductor!,
+        iconImage: "marker-15",
+        iconSize: 2.0,
+        iconColor: iconColor,
+        textField: textField,
+        textOffset: const Offset(0, 2.8),
+        textSize: 12,
+        textColor: iconColor,
+        textHaloColor: "#FFFFFF",
+        textHaloWidth: 1.5,
+      ));
+    }
   }
 
   Future<void> _obtenerUbicacion() async {
@@ -74,18 +239,7 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
         
         // CORRECCIÓN: Verificar que el controlador sigue disponible
         if (mounted && mapController != null) {
-          conductorSymbol = await controller.addSymbol(SymbolOptions(
-            geometry: ubicacionConductor!,
-            iconImage: "marker-15",
-            iconSize: 2.0,
-            iconColor: "#2196F3",
-            textField: "🚗 Tú (Conductor)",
-            textOffset: const Offset(0, 2.8),
-            textSize: 12,
-            textColor: "#2196F3",
-            textHaloColor: "#FFFFFF",
-            textHaloWidth: 1.5,
-          ));
+          _updateConductorMarker(); // ACTUALIZADO: Usar el nuevo método
         }
       } catch (e) {
         print('❌ Error al crear símbolo en mapa: $e');
@@ -93,6 +247,7 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
     }
   }
 
+  // MÉTODO ACTUALIZADO: Solo escuchar viajes si el conductor está activo
   void _escucharViajesPendientes() {
     print('🚗 Conductor: Iniciando listener de viajes pendientes');
     
@@ -102,6 +257,12 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
         .snapshots()
         .listen((snapshot) {
       print('🔄 Conductor: Snapshot recibido - ${snapshot.docs.length} viajes pendientes');
+      
+      // MODIFICACIÓN: Solo procesar viajes si el conductor está activo
+      if (!_isActive) {
+        print('⚠️ Conductor: Conductor inactivo, no se procesan viajes');
+        return;
+      }
       
       if (snapshot.docs.isNotEmpty) {
         for (var doc in snapshot.docs) {
@@ -118,7 +279,7 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
               viajesMostrados.add(viajeId);
               
               WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted && viajeActivo == null) {
+                if (mounted && viajeActivo == null && _isActive) { // AGREGADO: verificar que esté activo
                   _mostrarModalAceptacion(doc);
                 }
               });
@@ -360,12 +521,7 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
               } catch (e) {
                 print('❌ Error al aceptar viaje: $e');
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error al aceptar viaje: $e'),
-                      backgroundColor: errorColor,
-                    ),
-                  );
+                  _showErrorMessage('Error al aceptar viaje: $e');
                 }
               }
             },
@@ -444,19 +600,8 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
         await mapController!.clearLines();
         await mapController!.clearSymbols();
         
-        // Agregar conductor (yo) con icono azul
-        conductorSymbol = await mapController!.addSymbol(SymbolOptions(
-          geometry: ubicacionConductor!,
-          iconImage: "marker-15",
-          iconSize: 2.0,
-          iconColor: "#2196F3",
-          textField: "🚗 Tú (Conductor)",
-          textOffset: const Offset(0, 2.8),
-          textSize: 12,
-          textColor: "#2196F3",
-          textHaloColor: "#FFFFFF",
-          textHaloWidth: 1.5,
-        ));
+        // ACTUALIZADO: Usar el método actualizado para el marcador del conductor
+        _updateConductorMarker();
         
         // Agregar cliente con icono verde
         origenSymbol = await mapController!.addSymbol(SymbolOptions(
@@ -618,32 +763,15 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
 
       mapController?.clearLines();
       mapController?.clearSymbols();
+      _updateConductorMarker(); // ACTUALIZADO: Restaurar marcador normal
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 10),
-                Text('¡Viaje finalizado con éxito!'),
-              ],
-            ),
-            backgroundColor: successColor,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        );
+        _showSuccessMessage('¡Viaje finalizado con éxito!');
       }
     } catch (e) {
       print('❌ Error al finalizar viaje: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al finalizar viaje: $e'),
-            backgroundColor: errorColor,
-          ),
-        );
+        _showErrorMessage('Error al finalizar viaje: $e');
       }
     }
   }
@@ -667,26 +795,49 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
 
       mapController?.clearLines();
       mapController?.clearSymbols();
+      _updateConductorMarker(); // ACTUALIZADO: Restaurar marcador normal
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.cancel, color: Colors.white),
-                SizedBox(width: 10),
-                Text('Viaje cancelado'),
-              ],
-            ),
-            backgroundColor: errorColor,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        );
+        _showSuccessMessage('Viaje cancelado');
       }
     } catch (e) {
       print('❌ Error al cancelar viaje: $e');
     }
+  }
+
+  // NUEVOS MÉTODOS: Para mostrar mensajes
+  void _showSuccessMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.check_circle, color: Colors.white),
+            SizedBox(width: 10),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: successColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  void _showErrorMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(Icons.error, color: Colors.white),
+            SizedBox(width: 10),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: errorColor,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
   }
 
   @override
@@ -735,7 +886,62 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
                 ),
               ),
               
-              // Información del viaje mejorada
+              // NUEVO: Card flotante de estado del conductor
+              Positioned(
+                top: 30,
+                left: 20,
+                right: 20,
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(15),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _isActive ? successColor : Colors.grey,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _isActive ? 'Conductor Activo' : 'Conductor Inactivo',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: _isActive ? successColor : Colors.grey[600],
+                          ),
+                        ),
+                      ),
+                      Transform.scale(
+                        scale: 0.8,
+                        child: Switch(
+                          value: _isActive,
+                          onChanged: _isLoading || viajeActivo != null ? null : (value) => _toggleActiveState(),
+                          activeColor: Colors.white,
+                          activeTrackColor: successColor,
+                          inactiveThumbColor: Colors.white,
+                          inactiveTrackColor: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              
+              // MODIFICADO: Mostrar información del viaje solo si hay viaje activo
               if (viajeActivo != null)
                 Positioned(
                   top: 100,
@@ -757,7 +963,6 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Título
                         Row(
                           children: [
                             Container(
@@ -777,7 +982,6 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
                         ),
                         const SizedBox(height: 16),
                         
-                        // Información detallada
                         _buildInfoRow(Icons.person, "Cliente", viajeActivo!['cliente_nombre'] ?? 'Cliente', primaryColor),
                         const SizedBox(height: 8),
                         _buildInfoRow(Icons.drive_eta, "Conductor", viajeActivo!['conductor_nombre'] ?? 'Conductor', successColor),
@@ -790,7 +994,70 @@ class _MapaConductorWidgetState extends State<MapaConductorWidget> {
                   ),
                 ),
               
-              // Botones de acción mejorados
+              // NUEVO: Mensaje cuando el conductor está inactivo
+              if (!_isActive && viajeActivo == null)
+                Positioned(
+                  bottom: 30,
+                  left: 20,
+                  right: 20,
+                  child: Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[100],
+                      borderRadius: BorderRadius.circular(15),
+                      border: Border.all(color: Colors.grey[300]!),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.location_off, color: Colors.grey[600], size: 40),
+                        const SizedBox(height: 12),
+                        Text(
+                          'Conductor Inactivo',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Activa tu estado para recibir solicitudes de viaje',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: _isLoading ? null : _toggleActiveState,
+                          icon: _isLoading 
+                            ? SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                ),
+                              )
+                            : Icon(Icons.power_settings_new, color: Colors.white),
+                          label: Text(
+                            _isLoading ? 'Activando...' : 'Activar Conductor',
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: successColor,
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              
+              // Botones de acción para viajes (solo cuando hay viaje activo)
               if (viajeActivo != null)
                 Positioned(
                   bottom: 30,
