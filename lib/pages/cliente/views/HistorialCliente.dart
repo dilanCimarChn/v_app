@@ -164,6 +164,8 @@ class _HistorialClienteState extends State<HistorialCliente> {
             ),
             
             // Acciones adicionales para viajes completados
+// Reemplaza la sección de botones (líneas aproximadamente 190-230) con este código:
+
             if (estado.toLowerCase() == 'completado')
               Padding(
                 padding: const EdgeInsets.only(top: 12),
@@ -178,13 +180,21 @@ class _HistorialClienteState extends State<HistorialCliente> {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8), // Reducir padding
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min, // Importante: evita que el Row se expanda
                           children: [
-                            Text("ℹ️", style: TextStyle(fontSize: 16)),
+                            Text("ℹ️", style: TextStyle(fontSize: 14)), // Reducir tamaño del emoji
                             SizedBox(width: 4),
-                            Text("Ver detalles"),
+                            Flexible( // Usar Flexible para el texto
+                              child: Text(
+                                "Ver detalles",
+                                style: TextStyle(fontSize: 12), // Reducir tamaño de fuente
+                                overflow: TextOverflow.ellipsis, // Manejar overflow
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -199,13 +209,21 @@ class _HistorialClienteState extends State<HistorialCliente> {
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8), // Reducir padding
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisSize: MainAxisSize.min, // Importante: evita que el Row se expanda
                           children: [
-                            Text("🔄", style: TextStyle(fontSize: 16)),
+                            Text("🔄", style: TextStyle(fontSize: 14)), // Reducir tamaño del emoji
                             SizedBox(width: 4),
-                            Text("Repetir"),
+                            Flexible( // Usar Flexible para el texto
+                              child: Text(
+                                "Repetir",
+                                style: TextStyle(fontSize: 12), // Reducir tamaño de fuente
+                                overflow: TextOverflow.ellipsis, // Manejar overflow
+                              ),
+                            ),
                           ],
                         ),
                       ),
