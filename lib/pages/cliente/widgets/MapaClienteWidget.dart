@@ -8,7 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:v_app/services/firebase_service.dart';
 import 'package:v_app/services/openrouteservice_api.dart';
-import 'package:v_app/services/membresia_service.dart'; // NUEVA IMPORTACIÓN
+import 'package:v_app/services/membresia_service.dart';
 
 class MapaClienteWidget extends StatefulWidget {
   const MapaClienteWidget({super.key});
@@ -26,11 +26,23 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
   Line? rutaLine;
   Symbol? conductorSymbol;
   Line? rutaAlDestino;
+  
+  // NUEVA LÍNEA PARA RUTA DEL CONDUCTOR
+  Line? rutaConductor;
+  
   StreamSubscription? viajeListener;
+  
+  // NUEVO TIMER PARA ACTUALIZACIÓN DE UBICACIÓN DEL CONDUCTOR
+  Timer? actualizacionConductorTimer;
+  
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> sugerencias = [];
   bool modalMostrado = false;
   bool modalCalificacionMostrado = false;
+  
+  // NUEVAS VARIABLES PARA CONTROLAR ESTADO DE CALIFICACIÓN
+  String? viajeActivoId;
+  bool yaCalificado = false;
 
   // NUEVAS VARIABLES PARA PREMIUM
   bool tienePlanPremium = false;
@@ -42,23 +54,24 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
   static const Color successColor = Color(0xFF4CAF50);
   static const Color warningColor = Color(0xFFFF9800);
   static const Color errorColor = Color(0xFFF44336);
-  static const Color premiumColor = Color(0xFFFFD700); // NUEVO COLOR PREMIUM
+  static const Color premiumColor = Color(0xFFFFD700);
 
   @override
   void initState() {
     super.initState();
     _obtenerUbicacion();
     _escucharViajeAsignado();
-    _verificarPlanPremium(); // NUEVA FUNCIÓN
+    _verificarPlanPremium();
   }
 
   @override
   void dispose() {
     viajeListener?.cancel();
+    actualizacionConductorTimer?.cancel(); // NUEVO: Cancelar timer
     super.dispose();
   }
 
-  // NUEVA FUNCIÓN: Verificar plan premium
+  // FUNCIÓN EXISTENTE SIN CAMBIOS
   Future<void> _verificarPlanPremium() async {
     final planInfo = await MembresiaService.verificarPlanPremium();
     if (mounted) {
@@ -69,6 +82,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
     }
   }
 
+  // FUNCIÓN EXISTENTE SIN CAMBIOS
   Future<void> _obtenerUbicacion() async {
     var status = await Permission.location.request();
     if (!await Geolocator.isLocationServiceEnabled()) return;
@@ -83,6 +97,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
     });
   }
 
+  // FUNCIÓN EXISTENTE SIN CAMBIOS
   void _onMapCreated(MaplibreMapController controller) async {
     mapController = controller;
 
@@ -91,12 +106,11 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
         CameraUpdate.newLatLngZoom(ubicacionActual!, 15),
       );
       
-      // Agregar marcador de origen con estilo verde y emoji
       origenSymbol = await controller.addSymbol(SymbolOptions(
         geometry: ubicacionActual!,
         iconImage: "marker-15",
         iconSize: 1.8,
-        iconColor: "#4CAF50", // Verde para origen
+        iconColor: "#4CAF50",
         textField: "Tu ubicación",
         textOffset: const Offset(0, 2.5),
         textSize: 12,
@@ -107,6 +121,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
     }
   }
 
+  // FUNCIÓN MODIFICADA: Listener principal con correcciones
   void _escucharViajeAsignado() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -130,32 +145,24 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
         final destinoLng = data['destino_lng'];
         
         print('📍 Cliente: Estado del viaje: $estado');
+        
+        // ACTUALIZAR ID DEL VIAJE ACTIVO
+        viajeActivoId = doc.id;
 
         if (estado == 'aceptado' && conductorPos != null) {
-          print('✅ Cliente: Viaje aceptado, mostrando conductor');
+          print('✅ Cliente: Viaje aceptado, mostrando conductor y ruta');
           final geo = conductorPos as GeoPoint;
-          final LatLng pos = LatLng(geo.latitude, geo.longitude);
+          final LatLng posConductor = LatLng(geo.latitude, geo.longitude);
 
-          // Remover conductor anterior si existe
-          if (conductorSymbol != null) mapController?.removeSymbol(conductorSymbol!);
+          // NUEVA FUNCIONALIDAD: Mostrar conductor con ruta hacia cliente
+          await _mostrarConductorConRuta(posConductor);
           
-          // Agregar conductor con icono de auto azul
-          conductorSymbol = await mapController?.addSymbol(SymbolOptions(
-            geometry: pos,
-            iconImage: "marker-15",
-            iconSize: 2.0,
-            iconColor: "#2196F3", // Azul para conductor
-            textField: "Tu conductor",
-            textOffset: const Offset(0, 2.8),
-            textSize: 11,
-            textColor: "#2196F3",
-            textHaloColor: "#FFFFFF",
-            textHaloWidth: 1.5,
-          ));
+          // INICIAR ACTUALIZACIÓN PERIÓDICA DE LA UBICACIÓN DEL CONDUCTOR
+          _iniciarActualizacionConductor();
 
           final distancia = Geolocator.distanceBetween(
             ubicacionActual!.latitude, ubicacionActual!.longitude,
-            pos.latitude, pos.longitude,
+            posConductor.latitude, posConductor.longitude,
           );
           if (distancia < 50 && !modalMostrado) {
             modalMostrado = true;
@@ -164,17 +171,18 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
         }
 
         if (estado == 'en_curso' && destinoLat != null && destinoLng != null) {
-          print('🚗 Cliente: Viaje en curso, mostrando ruta');
+          print('🚗 Cliente: Viaje en curso, mostrando ruta del viaje');
+          
+          // DETENER ACTUALIZACIÓN DEL CONDUCTOR
+          actualizacionConductorTimer?.cancel();
+          
           final destino = LatLng(destinoLat, destinoLng);
           mapController?.clearSymbols();
           mapController?.clearLines();
 
-          final ruta = await OpenRouteServiceAPI.obtenerRuta(
-            origen: ubicacionActual!,
-            destino: destino,
-          );
+          final ruta = await _obtenerRutaSegura(ubicacionActual!, destino);
 
-          // Agregar origen con estilo verde
+          // Agregar marcadores del viaje
           origenSymbol = await mapController?.addSymbol(SymbolOptions(
             geometry: ubicacionActual!,
             iconImage: "marker-15",
@@ -188,7 +196,6 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
             textHaloWidth: 1.5,
           ));
 
-          // Agregar destino con estilo rojo
           await mapController?.addSymbol(SymbolOptions(
             geometry: destino,
             iconImage: "marker-15",
@@ -202,7 +209,6 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
             textHaloWidth: 1.5,
           ));
 
-          // Agregar ruta con mejor estilo
           await mapController?.addLine(LineOptions(
             geometry: ruta,
             lineColor: "#4CAF50",
@@ -211,53 +217,243 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
           ));
         }
 
-        // FUNCIONALIDAD CORREGIDA: Modal de calificación cuando el viaje finaliza
+        // CORRECCIÓN MEJORADA DEL MODAL DE CALIFICACIÓN
         if (estado == 'finalizado') {
           print('🏁 Cliente: Viaje finalizado detectado');
           
-          // Verificar si ya fue calificado
-          final yaCalificado = data['calificacion_general'] != null && data['calificacion_general'] > 0;
-          print('⭐ Cliente: Ya calificado: $yaCalificado, Modal mostrado: $modalCalificacionMostrado');
+          // DETENER CUALQUIER ACTUALIZACIÓN EN CURSO
+          actualizacionConductorTimer?.cancel();
           
+          // VERIFICAR CALIFICACIÓN DE MANERA MÁS ROBUSTA
+          final calificacionGeneral = data['calificacion_general'];
+          yaCalificado = calificacionGeneral != null && calificacionGeneral > 0;
+          
+          print('⭐ Cliente: Calificación actual: $calificacionGeneral');
+          print('⭐ Cliente: Ya calificado: $yaCalificado');
+          print('⭐ Cliente: Modal mostrado: $modalCalificacionMostrado');
+          
+          // CONDICIÓN MEJORADA PARA MOSTRAR MODAL
           if (!yaCalificado && !modalCalificacionMostrado) {
-            print('📱 Cliente: Mostrando modal de calificación');
+            print('📱 Cliente: Preparando modal de calificación');
             modalCalificacionMostrado = true;
             
-            // CORRECCIÓN: Usar un delay para asegurar que el estado se actualice
-            await Future.delayed(const Duration(milliseconds: 500));
+            // DELAY MÁS LARGO PARA ASEGURAR ESTABILIDAD
+            await Future.delayed(const Duration(milliseconds: 1000));
             
-            if (mounted) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  _mostrarModalCalificacion(doc.id, data['conductor_nombre'] ?? 'Conductor');
+            if (mounted && !yaCalificado) {
+              // VERIFICAR NUEVAMENTE ANTES DE MOSTRAR
+              final docActualizado = await FirebaseFirestore.instance
+                  .collection('viajes')
+                  .doc(doc.id)
+                  .get();
+              
+              if (docActualizado.exists) {
+                final dataActualizada = docActualizado.data()!;
+                final calificacionActual = dataActualizada['calificacion_general'];
+                
+                if (calificacionActual == null || calificacionActual == 0) {
+                  print('📱 Cliente: Mostrando modal de calificación (verificación doble)');
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted && !yaCalificado) {
+                      _mostrarModalCalificacion(doc.id, data['conductor_nombre'] ?? 'Conductor');
+                    }
+                  });
+                } else {
+                  print('⭐ Cliente: Viaje ya fue calificado en verificación doble');
+                  yaCalificado = true;
                 }
-              });
+              }
             }
           }
         }
         
-        // CORRECCIÓN: Si el viaje ya fue calificado, limpiar el mapa
-        if (estado == 'finalizado' && data['calificacion_general'] != null) {
-          print('🧹 Cliente: Limpiando mapa - viaje calificado');
+        // LIMPIAR MAPA SI EL VIAJE YA FUE CALIFICADO
+        if (estado == 'finalizado' && yaCalificado) {
+          print('🧹 Cliente: Limpiando mapa - viaje ya calificado');
           await Future.delayed(const Duration(seconds: 2));
-          mapController?.clearSymbols();
-          mapController?.clearLines();
+          _limpiarMapa();
         }
       } else {
-        print('❌ Cliente: No hay viajes activos, reseteando flags');
-        // Si no hay viajes activos, resetear los flags
+        print('❌ Cliente: No hay viajes activos, reseteando estado');
+        // RESETEAR TODOS LOS FLAGS Y TIMERS
         if (mounted) {
           setState(() {
             modalMostrado = false;
             modalCalificacionMostrado = false;
+            viajeActivoId = null;
+            yaCalificado = false;
           });
         }
+        actualizacionConductorTimer?.cancel();
+        _limpiarMapa();
       }
     }, onError: (error) {
       print('❌ Cliente: Error en listener de viajes: $error');
     });
   }
 
+  // NUEVA FUNCIÓN: Mostrar conductor con ruta hacia cliente
+  Future<void> _mostrarConductorConRuta(LatLng posConductor) async {
+    if (mapController == null || ubicacionActual == null) return;
+
+    try {
+      // Limpiar conductor y ruta anterior
+      if (conductorSymbol != null) {
+        await mapController!.removeSymbol(conductorSymbol!);
+      }
+      if (rutaConductor != null) {
+        await mapController!.removeLine(rutaConductor!);
+      }
+
+      // Agregar nuevo marcador del conductor
+      conductorSymbol = await mapController!.addSymbol(SymbolOptions(
+        geometry: posConductor,
+        iconImage: "marker-15",
+        iconSize: 2.0,
+        iconColor: "#2196F3",
+        textField: "🚗 Tu conductor",
+        textOffset: const Offset(0, 2.8),
+        textSize: 11,
+        textColor: "#2196F3",
+        textHaloColor: "#FFFFFF",
+        textHaloWidth: 1.5,
+      ));
+
+      // NUEVA FUNCIONALIDAD: Trazar ruta del conductor hacia el cliente
+      print('🗺️ Cliente: Trazando ruta del conductor hacia ti');
+      
+      final rutaPuntos = await _obtenerRutaSegura(posConductor, ubicacionActual!);
+      
+      if (rutaPuntos.isNotEmpty) {
+        rutaConductor = await mapController!.addLine(LineOptions(
+          geometry: rutaPuntos,
+          lineColor: "#FF9800", // Naranja para ruta del conductor
+          lineWidth: 5,
+          lineOpacity: 0.8,
+        ));
+        
+        print('✅ Cliente: Ruta del conductor agregada al mapa');
+      }
+
+      // Ajustar vista del mapa para mostrar ambos puntos
+      final bounds = _calcularBounds([posConductor, ubicacionActual!]);
+      await mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds));
+      
+    } catch (e) {
+      print('❌ Cliente: Error al mostrar conductor con ruta: $e');
+    }
+  }
+
+  // NUEVA FUNCIÓN: Iniciar actualización periódica del conductor
+  void _iniciarActualizacionConductor() {
+    // Cancelar timer anterior si existe
+    actualizacionConductorTimer?.cancel();
+    
+    // Crear nuevo timer que se ejecuta cada 10 segundos
+    actualizacionConductorTimer = Timer.periodic(const Duration(seconds: 10), (timer) async {
+      if (viajeActivoId != null && mounted) {
+        try {
+          print('🔄 Cliente: Actualizando ubicación del conductor...');
+          
+          final viajeDoc = await FirebaseFirestore.instance
+              .collection('viajes')
+              .doc(viajeActivoId!)
+              .get();
+          
+          if (viajeDoc.exists) {
+            final data = viajeDoc.data()!;
+            final estado = data['estado'];
+            final conductorPos = data['ubicacion_conductor'];
+            
+            // Solo actualizar si el viaje sigue aceptado y hay nueva ubicación
+            if (estado == 'aceptado' && conductorPos != null) {
+              final geo = conductorPos as GeoPoint;
+              final nuevaPos = LatLng(geo.latitude, geo.longitude);
+              
+              await _mostrarConductorConRuta(nuevaPos);
+              print('✅ Cliente: Ubicación del conductor actualizada');
+            } else {
+              // Si el estado cambió, detener actualizaciones
+              print('🛑 Cliente: Estado cambió, deteniendo actualizaciones del conductor');
+              timer.cancel();
+            }
+          }
+        } catch (e) {
+          print('❌ Cliente: Error al actualizar conductor: $e');
+        }
+      } else {
+        timer.cancel();
+      }
+    });
+  }
+
+  // NUEVA FUNCIÓN: Obtener ruta de manera segura con fallback
+  Future<List<LatLng>> _obtenerRutaSegura(LatLng origen, LatLng destino) async {
+    try {
+      final ruta = await OpenRouteServiceAPI.obtenerRuta(
+        origen: origen,
+        destino: destino,
+      );
+      print('✅ Cliente: Ruta obtenida de OpenRouteService');
+      return ruta;
+    } catch (e) {
+      print('⚠️ Cliente: OpenRouteService falló, usando línea directa: $e');
+      return [origen, destino];
+    }
+  }
+
+  // NUEVA FUNCIÓN: Calcular bounds para mostrar múltiples puntos
+  LatLngBounds _calcularBounds(List<LatLng> puntos) {
+    double minLat = puntos.first.latitude;
+    double maxLat = puntos.first.latitude;
+    double minLng = puntos.first.longitude;
+    double maxLng = puntos.first.longitude;
+
+    for (LatLng punto in puntos) {
+      if (punto.latitude < minLat) minLat = punto.latitude;
+      if (punto.latitude > maxLat) maxLat = punto.latitude;
+      if (punto.longitude < minLng) minLng = punto.longitude;
+      if (punto.longitude > maxLng) maxLng = punto.longitude;
+    }
+
+    const padding = 0.005; // Padding más grande para mejor visualización
+    
+    return LatLngBounds(
+      southwest: LatLng(minLat - padding, minLng - padding),
+      northeast: LatLng(maxLat + padding, maxLng + padding),
+    );
+  }
+
+  // NUEVA FUNCIÓN: Limpiar mapa de manera segura
+  Future<void> _limpiarMapa() async {
+    if (mapController != null) {
+      try {
+        await mapController!.clearSymbols();
+        await mapController!.clearLines();
+        
+        // Restablecer marcador de ubicación actual
+        if (ubicacionActual != null) {
+          origenSymbol = await mapController!.addSymbol(SymbolOptions(
+            geometry: ubicacionActual!,
+            iconImage: "marker-15",
+            iconSize: 1.8,
+            iconColor: "#4CAF50",
+            textField: "Tu ubicación",
+            textOffset: const Offset(0, 2.5),
+            textSize: 12,
+            textColor: "#4CAF50",
+            textHaloColor: "#FFFFFF",
+            textHaloWidth: 1.5,
+          ));
+        }
+        print('🧹 Cliente: Mapa limpiado y restablecido');
+      } catch (e) {
+        print('❌ Cliente: Error al limpiar mapa: $e');
+      }
+    }
+  }
+
+  // FUNCIÓN EXISTENTE SIN CAMBIOS
   void _mostrarModalLlegada() {
     showDialog(
       context: context,
@@ -302,7 +498,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
     );
   }
 
-  // MÉTODO CORREGIDO: Modal de calificación
+  // FUNCIÓN CORREGIDA: Modal de calificación con mejor control
   void _mostrarModalCalificacion(String viajeId, String conductorNombre) {
     int calificacion = 0;
     int puntualidad = 0;
@@ -346,7 +542,6 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
                 ),
                 const SizedBox(height: 20),
                 
-                // Calificación general
                 const Text(
                   "Calificación general:",
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
@@ -371,7 +566,6 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
                 ),
                 const SizedBox(height: 20),
                 
-                // Puntualidad
                 const Text(
                   "Puntualidad:",
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
@@ -396,7 +590,6 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
                 ),
                 const SizedBox(height: 20),
                 
-                // Comentario opcional
                 const Text(
                   "Comentario (opcional):",
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
@@ -421,7 +614,8 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
               onPressed: () {
                 print('⏭️ Cliente: Omitiendo calificación');
                 Navigator.of(context).pop();
-                // CORRECCIÓN: Mantener el flag para evitar que se muestre de nuevo
+                // MARCAR COMO CALIFICADO PARA EVITAR QUE APAREZCA DE NUEVO
+                yaCalificado = true;
               },
               child: Text("Omitir", style: TextStyle(color: Colors.grey[600])),
             ),
@@ -430,7 +624,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
                 print('⭐ Cliente: Enviando calificación - General: $calificacion, Puntualidad: $puntualidad');
                 
                 try {
-                  // CORRECCIÓN: Usar batch para asegurar que la actualización sea atómica
+                  // ACTUALIZACIÓN ATÓMICA CON BATCH
                   final batch = FirebaseFirestore.instance.batch();
                   final viajeRef = FirebaseFirestore.instance.collection('viajes').doc(viajeId);
                   
@@ -444,10 +638,11 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
                   await batch.commit();
                   print('✅ Cliente: Calificación guardada exitosamente');
 
-                  // Cerrar el modal
+                  // MARCAR COMO CALIFICADO
+                  yaCalificado = true;
+
                   Navigator.of(context).pop();
                   
-                  // Mostrar mensaje de agradecimiento
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: const Row(
@@ -463,10 +658,9 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
                     ),
                   );
                   
-                  // CORRECCIÓN: Limpiar el mapa después de calificar
+                  // LIMPIAR MAPA DESPUÉS DE CALIFICAR
                   await Future.delayed(const Duration(seconds: 1));
-                  mapController?.clearSymbols();
-                  mapController?.clearLines();
+                  _limpiarMapa();
                   
                 } catch (e) {
                   print('❌ Cliente: Error al guardar calificación: $e');
@@ -494,17 +688,17 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
     );
   }
 
+  // RESTO DEL CÓDIGO PERMANECE IGUAL (funciones de mapa, búsqueda, etc.)
   Future<void> _onMapTap(Point<double> point, LatLng coordinates) async {
     if (destinoSymbol != null) {
       mapController!.removeSymbol(destinoSymbol!);
     }
 
-    // Agregar destino con icono rojo y emoji
     destinoSymbol = await mapController!.addSymbol(SymbolOptions(
       geometry: coordinates,
       iconImage: "marker-15",
       iconSize: 1.8,
-      iconColor: "#F44336", // Rojo para destino
+      iconColor: "#F44336",
       textField: "Destino",
       textOffset: const Offset(0, 2.5),
       textSize: 12,
@@ -527,20 +721,7 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
       mapController!.removeLine(rutaLine!);
     }
 
-    // CORRECCIÓN: Manejar error de OpenRouteService
-    List<LatLng> puntosRuta = [];
-    
-    try {
-      puntosRuta = await OpenRouteServiceAPI.obtenerRuta(
-        origen: ubicacionActual!,
-        destino: destinoSeleccionado!,
-      );
-      print('✅ Cliente: Ruta obtenida correctamente');
-    } catch (e) {
-      print('⚠️ Cliente: Error en OpenRouteService, usando línea directa: $e');
-      // FALLBACK: Si OpenRouteService falla, usar línea directa
-      puntosRuta = [ubicacionActual!, destinoSeleccionado!];
-    }
+    List<LatLng> puntosRuta = await _obtenerRutaSegura(ubicacionActual!, destinoSeleccionado!);
 
     if (puntosRuta.isNotEmpty) {
       rutaLine = await mapController!.addLine(LineOptions(
@@ -576,7 +757,6 @@ class _MapaClienteWidgetState extends State<MapaClienteWidget> {
       mapController!.removeSymbol(destinoSymbol!);
     }
 
-    // Agregar destino seleccionado con icono rojo
     destinoSymbol = await mapController!.addSymbol(SymbolOptions(
       geometry: coordenadas,
       iconImage: "marker-15",

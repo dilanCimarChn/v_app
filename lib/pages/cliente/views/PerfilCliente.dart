@@ -470,7 +470,7 @@ class _PerfilClienteState extends State<PerfilCliente> {
           ),
           filled: true,
           fillColor: Colors.white,
-        ),
+        ),  
       ),
     );
   }
@@ -560,14 +560,17 @@ class _PerfilClienteState extends State<PerfilCliente> {
               children: [
                 Icon(Icons.calendar_today, size: 16, color: Colors.grey[600]),
                 const SizedBox(width: 8),
-                Text(
-                  'Miembro desde: ${_formatearFecha(_datosUsuario['fecha_registro'])}',
-                  style: TextStyle(
-                    color: Colors.grey[600],
-                    fontSize: 12,
+                Expanded(
+                  child: Text(
+                    'Miembro desde: ${_formatearFecha(_datosUsuario['fecha_registro'])}',
+                    style: TextStyle(
+                      color: Colors.grey[600],
+                      fontSize: 12,
+                    ),
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
-                const Spacer(),
+                const SizedBox(width: 8),
                 Icon(
                   _datosUsuario['verificado'] == true ? Icons.verified : Icons.pending,
                   size: 16,
@@ -578,7 +581,7 @@ class _PerfilClienteState extends State<PerfilCliente> {
                   _datosUsuario['verificado'] == true ? 'Verificado' : 'Pendiente',
                   style: TextStyle(
                     color: _datosUsuario['verificado'] == true ? successColor : Colors.orange,
-                    fontSize: 12,
+                    fontSize: 11, // Reducido de 12 a 11
                     fontWeight: FontWeight.w600,
                   ),
                 ),
