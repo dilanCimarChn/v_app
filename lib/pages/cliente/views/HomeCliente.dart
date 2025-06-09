@@ -6,7 +6,7 @@ class HomeCliente extends StatelessWidget {
   const HomeCliente({super.key});
 
   // ⚠ Reemplaza por la URL actual generada por Ngrok
-  final String ngrokUrl = 'https://5fd1-131-0-196-140.ngrok-free.app/';
+  final String ngrokUrl = 'https://8741-2800-cd0-16b-a97-c480-3fff-fefd-da6.ngrok-free.app/';
 
   void _abrirStreamModal(BuildContext context) {
     showDialog(
@@ -81,9 +81,10 @@ class _StreamModalState extends State<StreamModal> {
   void initState() {
     super.initState();
     
-    // Configurar el WebViewController
+    // Configuración ultra simple para MJPEG
     controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (String url) {
@@ -95,18 +96,42 @@ class _StreamModalState extends State<StreamModal> {
             setState(() {
               isLoading = false;
             });
-          },
-          onWebResourceError: (WebResourceError error) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Error al cargar: ${error.description}'),
-                backgroundColor: Colors.red,
-              ),
-            );
+            
+            // JavaScript simplificado y más seguro
+            controller.runJavaScript('''
+              setTimeout(() => {
+                try {
+                  // Configurar el body
+                  if (document.body) {
+                    document.body.style.margin = '0';
+                    document.body.style.padding = '0';
+                    document.body.style.backgroundColor = 'black';
+                    document.body.style.overflow = 'hidden';
+                  }
+                  
+                  // Buscar y configurar imágenes
+                  const images = document.querySelectorAll('img');
+                  images.forEach(img => {
+                    if (img) {
+                      img.style.width = '100vw';
+                      img.style.height = '100vh';
+                      img.style.objectFit = 'contain';
+                      img.style.display = 'block';
+                    }
+                  });
+                  
+                  console.log('Stream setup completed');
+                } catch (e) {
+                  console.log('Error in stream setup:', e);
+                }
+              }, 2000);
+            ''');
           },
         ),
-      )
-      ..loadRequest(Uri.parse(widget.url));
+      );
+      
+    // Cargar URL de forma más simple
+    controller.loadRequest(Uri.parse(widget.url));
   }
 
   @override
@@ -118,7 +143,7 @@ class _StreamModalState extends State<StreamModal> {
         height: MediaQuery.of(context).size.height * 0.8,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          color: Colors.white,
+          color: Colors.black, // Fondo negro para video
         ),
         child: Column(
           children: [
@@ -138,7 +163,7 @@ class _StreamModalState extends State<StreamModal> {
                     child: Padding(
                       padding: EdgeInsets.only(left: 16),
                       child: Text(
-                        'Cámara en Vivo',
+                        'Stream en Vivo',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 18,
@@ -147,6 +172,21 @@ class _StreamModalState extends State<StreamModal> {
                       ),
                     ),
                   ),
+                  // Botón refresh
+                  IconButton(
+                    onPressed: () {
+                      setState(() {
+                        isLoading = true;
+                      });
+                      controller.loadRequest(Uri.parse(widget.url));
+                    },
+                    icon: const Icon(
+                      Icons.refresh,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                  // Botón cerrar
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
                     icon: const Icon(
@@ -159,33 +199,51 @@ class _StreamModalState extends State<StreamModal> {
               ),
             ),
             
-            // WebView content
+            // WebView para video
             Expanded(
-              child: Stack(
-                children: [
-                  WebViewWidget(controller: controller),
-                  
-                  // Indicador de carga
-                  if (isLoading)
-                    const Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          CircularProgressIndicator(
-                            color: Colors.redAccent,
-                          ),
-                          SizedBox(height: 16),
-                          Text(
-                            'Cargando stream...',
-                            style: TextStyle(
-                              fontSize: 16,
-                              color: Colors.grey,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.only(
+                    bottomLeft: Radius.circular(12),
+                    bottomRight: Radius.circular(12),
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(12),
+                    bottomRight: Radius.circular(12),
+                  ),
+                  child: Stack(
+                    children: [
+                      WebViewWidget(controller: controller),
+                      
+                      // Indicador de carga con fondo semi-transparente
+                      if (isLoading)
+                        Container(
+                          color: Colors.black.withOpacity(0.7),
+                          child: const Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                CircularProgressIndicator(
+                                  color: Colors.redAccent,
+                                ),
+                                SizedBox(height: 16),
+                                Text(
+                                  'Cargando stream...',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                ],
+                        ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ],
