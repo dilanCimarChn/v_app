@@ -8,11 +8,12 @@ import 'package:v_app/login/inicia_sesion.dart';
 import 'package:v_app/login/registrarse.dart';
 import 'package:v_app/login/verificacion_codigo.dart'; // Nueva importación
 
-
 import 'package:v_app/pages/cliente/widgets/NavCliente.dart';
 import 'package:v_app/pages/conductor/widgets/NavConductor.dart';
 import 'package:v_app/pages/conductor/views/forms.dart';
 
+// NUEVA IMPORTACIÓN - Solo agregar esta línea
+import 'package:v_app/services/conductor_state_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
@@ -76,6 +77,11 @@ class _RutaInicialState extends State<RutaInicial> {
       } else if (rol == 'cliente') {
         Navigator.pushReplacementNamed(context, '/home_cliente');
       } else if (rol == 'conductor') {
+        // NUEVA FUNCIONALIDAD - Solo agregar estas líneas
+        // Inicializar el servicio del conductor cuando sea conductor
+        final conductorService = ConductorStateService();
+        await conductorService.initialize();
+        
         Navigator.pushReplacementNamed(context, '/verificacion_conductor');
       }
     } catch (e) {

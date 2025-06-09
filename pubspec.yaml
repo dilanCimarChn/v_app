@@ -57,6 +57,7 @@ dependencies:
   geolocator: ^9.0.2
   permission_handler: ^12.0.0+1
 
+  cupertino_icons: ^1.0.8
 dependency_overrides:
   geolocator_android: ^4.6.2
 
